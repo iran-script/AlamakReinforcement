@@ -1,0 +1,10 @@
+ALTER TABLE riser
+ADD COLUMN IF NOT EXISTS geom_3857 geometry(Geometry, 3857);
+
+UPDATE riser
+SET geom_3857 = ST_Transform(geom, 3857)
+WHERE geom IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS riser_geom_3857_gist
+ON riser
+USING GIST (geom_3857);
