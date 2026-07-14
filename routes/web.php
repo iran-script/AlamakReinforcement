@@ -15,6 +15,9 @@ use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\ZoneController;
+use App\Http\Controllers\OperationCategoryController;
+use App\Http\Controllers\MaterialCategoryController;
+use App\Http\Controllers\MaterialController;
 
 
 /*
@@ -60,6 +63,19 @@ Route::prefix('api')->group(function () {
 Route::get('/reports', [ReportController::class,'index'])
     ->name('reports.index');
 
+
+Route::resource(
+    'operation-category',
+    OperationCategoryController::class
+);
+
+Route::resource(
+    'material-category',
+    MaterialCategoryController::class
+);
+
+
+Route::resource('material',MaterialController::class);
 /*
 |--------------------------------------------------------------------------
 | Protected Routes

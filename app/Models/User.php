@@ -26,8 +26,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'username', 
-         'zone_id'
+        'username',
+        'zone_id'
     ];
 
     /**
@@ -61,5 +61,18 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role === 'superadmin';
+    }
+
+    public function operationsToApprove()
+    {
+        return $this->belongsToMany(
+            Operation::class,
+            'operation_supervisors'
+        )->withPivot([
+            'status',
+            'comment',
+            'approved_at',
+            'order'
+        ])->withTimestamps();
     }
 }

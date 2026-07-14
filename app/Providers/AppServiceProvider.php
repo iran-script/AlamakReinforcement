@@ -6,6 +6,9 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Pagination\Paginator;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\View;
+use App\Services\MenuService;
+
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -23,7 +26,14 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::before(function (User $user, string $ability) {
-        return $user->hasRole('superadmin') ? true : null;
+            return $user->hasRole('superadmin') ? true : null;
+        });
+
+        View::composer('*', function ($view) {
+
+            $menus = app(MenuService::class)->get();
+
+            $view->with('menus', $menus);
         });
     }
 }
