@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <strong>${zoneName}</strong>
                 <br>
                 <small class="text-muted">شناسه: ${zoneId}</small>
+                <br>
             `;
 
             item.addEventListener('click', function () {

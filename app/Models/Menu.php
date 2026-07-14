@@ -12,7 +12,6 @@ class Menu extends Model
         'icon',
         'route',
         'permission',
-        'module',
         'sort',
         'visible'
     ];
@@ -21,21 +20,21 @@ class Menu extends Model
         'visible' => 'boolean'
     ];
 
-    /**
-     * منوی والد
-     */
     public function parent()
     {
         return $this->belongsTo(Menu::class, 'parent_id');
     }
 
-    /**
-     * زیرمنوها
-     */
     public function children()
     {
         return $this->hasMany(Menu::class, 'parent_id')
             ->where('visible', true)
+            ->with('children')
             ->orderBy('sort');
+    }
+
+    public function isActive()
+    {
+        return $this->route && request()->routeIs($this->route);
     }
 }

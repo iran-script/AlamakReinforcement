@@ -4,6 +4,8 @@
 
 @section('content')
 
+
+
 <h4 class="mb-4">داشبورد سیستم مقاوم‌سازی علمک‌ها</h4>
 
 <div class="row g-3">

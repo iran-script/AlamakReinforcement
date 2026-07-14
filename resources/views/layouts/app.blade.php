@@ -7,6 +7,7 @@
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="{{ asset('js/sidebar.js') }}"></script>
 
     <style>
         body {
@@ -84,98 +85,56 @@
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.08);
         }
     </style>
+    <style>
+        .menu-group {
+            margin-bottom: 5px;
+        }
+
+        .menu-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .submenu {
+            display: none;
+            margin-right: 15px;
+        }
+
+        .submenu.show {
+            display: block;
+        }
+
+        .submenu a {
+            font-size: 14px;
+            color: #d0d0d0;
+        }
+
+        .submenu a:hover {
+            color: #38bdf8;
+        }
+
+        .active-menu {
+            background: #1f2937;
+            color: #38bdf8 !important;
+            border-radius: 6px;
+        }
+
+        .arrow {
+            transition: .3s;
+        }
+
+        .menu-toggle.open .arrow {
+            transform: rotate(180deg);
+        }
+    </style>
 
 </head>
 
 <body>
 
-    <!-- SIDEBAR -->
-    <div id="sidebar">
-
-        <button class="toggle-btn" onclick="toggleSidebar()">☰ منو</button>
-
-        <a href="{{ route('dashboard') }}">
-            <span>📊</span><span class="text">داشبورد</span>
-        </a>
-
-        <a href="{{ route('map') }}">
-            <span>🗺</span><span class="text">نقشه GIS</span>
-        </a>
-
-        @foreach ($menus as $menu)
-            @if ($menu->children->count())
-                <div class="mb-2">
-
-                    <a href="#" class="menu-toggle d-flex justify-content-between align-items-center"
-                        data-menu="{{ $menu->id }}">
-
-                        <div>
-
-                            <i class="{{ $menu->icon }}"></i>
-
-                            <span class="text">
-
-                                {{ $menu->title }}
-
-                            </span>
-
-                        </div>
-
-                        <i class="bi bi-chevron-down text"></i>
-
-                    </a>
-
-                    <div id="submenu{{ $menu->id }}" class="submenu" style="display:none;">
-
-                        @foreach ($menu->children as $child)
-                            @can($child->permission ?? '')
-                                <a href="{{ route($child->route) }}" class="ps-4">
-
-                                    <i class="{{ $child->icon }}"></i>
-
-                                    <span class="text">
-
-                                        {{ $child->title }}
-
-                                    </span>
-
-                                </a>
-                            @else
-                                @if (empty($child->permission))
-                                    <a href="{{ route($child->route) }}" class="ps-4">
-
-                                        <i class="{{ $child->icon }}"></i>
-
-                                        <span class="text">
-
-                                            {{ $child->title }}
-
-                                        </span>
-
-                                    </a>
-                                @endif
-                            @endcan
-                        @endforeach
-
-                    </div>
-
-                </div>
-            @else
-                <a href="{{ route($menu->route) }}">
-
-                    <i class="{{ $menu->icon }}"></i>
-
-                    <span class="text">
-
-                        {{ $menu->title }}
-
-                    </span>
-
-                </a>
-            @endif
-        @endforeach
-
-    </div>
+    <x-sidebar />
 
     <!-- CONTENT -->
     <div id="content">

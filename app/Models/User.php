@@ -13,9 +13,9 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasRoles;
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+    use HasRoles;
 
     /**
      * The attributes that are mass assignable.
@@ -61,6 +61,20 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role === 'superadmin';
+    }
+    
+
+
+    public function hasPermission($permission)
+    {
+        if ($this->role && $this->role->name === 'superadmin') {
+            return true;
+        }
+        return $this->role
+            && $this->role
+            ->permissions()
+            ->where('name', $permission)
+            ->exists();
     }
 
     public function operationsToApprove()

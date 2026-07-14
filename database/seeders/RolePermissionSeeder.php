@@ -11,64 +11,110 @@ class RolePermissionSeeder extends Seeder
 {
     public function run(): void
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Permissions
+        |--------------------------------------------------------------------------
+        */
+
         $permissions = [
-            'view-map',
-            'view-riser',
-            'create-riser',
-            'edit-riser',
-            'delete-riser',
-            'view-valve',
-            'create-valve',
-            'edit-valve',
-            'delete-valve',
-            'manage-users',
-            'manage-zones',
+
+            'dashboard.view',
+
+            'map.view',
+
+            'zone.view',
+            'zone.create',
+            'zone.edit',
+            'zone.delete',
+
+            'riser.view',
+            'riser.create',
+            'riser.edit',
+            'riser.delete',
+
+            'operation.view',
+            'operation.create',
+            'operation.edit',
+            'operation.delete',
+            'operation.approve',
+
+            'operation-category.view',
+            'operation-category.create',
+            'operation-category.edit',
+            'operation-category.delete',
+
+            'material-category.view',
+            'material-category.create',
+            'material-category.edit',
+            'material-category.delete',
+
+            'material.view',
+            'material.create',
+            'material.edit',
+            'material.delete',
+
+            'contractor.view',
+            'contractor.create',
+            'contractor.edit',
+            'contractor.delete',
+
+            'report.view',
+
+            'user.view',
+            'user.create',
+            'user.edit',
+            'user.delete',
+
+            'role.view',
+            'role.create',
+            'role.edit',
+            'role.delete',
+
         ];
 
-        foreach ($permissions as $permissionName) {
-            Permission::findOrCreate($permissionName, 'web');
+        foreach ($permissions as $permission) {
+
+            Permission::findOrCreate($permission, 'web');
+
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Roles
+        |--------------------------------------------------------------------------
+        */
+
         $superAdmin = Role::findOrCreate('superadmin', 'web');
-        $admin = Role::findOrCreate('admin', 'web');
-        $operator = Role::findOrCreate('operator', 'web');
-        $viewer = Role::findOrCreate('viewer', 'web');
 
-        $superAdmin->syncPermissions(Permission::all());
+        Role::findOrCreate('admin', 'web');
 
-        $admin->syncPermissions([
-            'view-map',
-            'view-riser',
-            'create-riser',
-            'edit-riser',
-            'delete-riser',
-            'view-valve',
-            'create-valve',
-            'edit-valve',
-            'delete-valve',
-            'manage-zones',
-        ]);
+        Role::findOrCreate('operator', 'web');
 
-        $operator->syncPermissions([
-            'view-map',
-            'view-riser',
-            'create-riser',
-            'edit-riser',
-            'view-valve',
-            'create-valve',
-            'edit-valve',
-        ]);
+        Role::findOrCreate('viewer', 'web');
 
-        $viewer->syncPermissions([
-            'view-map',
-            'view-riser',
-            'view-valve',
-        ]);
+        /*
+        |--------------------------------------------------------------------------
+        | SuperAdmin
+        |--------------------------------------------------------------------------
+        */
 
-        $user = User::where('username', 'ایمیل_مدیر_کل_خودت')->first();
+        $superAdmin->syncPermissions(
+            Permission::all()
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | اولین کاربر = SuperAdmin
+        |--------------------------------------------------------------------------
+        */
+
+        $user = User::first();
 
         if ($user) {
-            $user->syncRoles(['superadmin']);
+
+            $user->assignRole($superAdmin);
+
         }
     }
 }
