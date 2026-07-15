@@ -247,35 +247,38 @@
                             </button>
                         </div>
 
-                        <table class="table table-bordered table-hover align-middle" id="operationTable">
+                        <div class="table-responsive">
 
-                            <thead class="table-light">
+                            <table class="table table-bordered table-hover align-middle" id="operationTable">
 
-                                <tr>
+                                <thead class="table-light">
 
-                                    <th>#</th>
+                                    <tr>
 
-                                    <th>تاریخ</th>
+                                        <th>#</th>
 
-                                    <th>نوع عملیات</th>
+                                        <th>تاریخ</th>
 
-                                    <th>پیمانکار</th>
+                                        <th>نوع عملیات</th>
 
-                                    <th>وضعیت</th>
+                                        <th>پیمانکار</th>
 
-                                    <th>هزینه</th>
+                                        <th>وضعیت</th>
 
-                                    <th>جزئیات</th>
+                                        <th>هزینه</th>
 
-                                </tr>
+                                        <th>جزئیات</th>
 
-                            </thead>
+                                    </tr>
 
-                            <tbody>
+                                </thead>
 
-                            </tbody>
+                                <tbody>
 
-                        </table>
+                                </tbody>
+
+                            </table>
+                        </div>
 
                     </div>
 
@@ -373,8 +376,8 @@
 
                         </div>
 
-                        
-                       
+
+
                     </div>
 
                 </div>
@@ -415,9 +418,8 @@
     <div class="modal fade" id="createOperationModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
 
-            <form id="createOperationForm">
+            <form id="createOperationForm" action="{{ route('operations.store') }}" method="POST">
                 @csrf
-
                 <input type="hidden" name="riser_id" id="operation_riser_id">
 
                 <div class="modal-content">
@@ -436,7 +438,9 @@
 
                             <div class="col-md-6">
                                 <label class="form-label">نوع عملیات</label>
-                                <input type="text" class="form-control" name="operation" required>
+                                <select class="form-select" id="operationcat" name="operationcat" required>
+                                    <option value="">در حال بارگذاری...</option>
+                                </select>
                             </div>
 
 
@@ -461,16 +465,28 @@
                                 </select>
                             </div>
 
-                            <div class="col-md-6">
-                                <label class="form-label">تعداد شیر</label>
-                                <input type="number" class="form-control" name="operation" required>
-                            </div>
+                            <div class="col-12">
 
-                            <div class="col-md-6">
-                                <label class="form-label">تعداد مهره</label>
-                                <input type="number" class="form-control" name="operation" required>
-                            </div>
+                                <label class="form-label">
+                                    متریال مصرفی
+                                </label>
 
+                                <table class="table table-bordered table-hover align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>متریال</th>
+                                            <th width="120">واحد</th>
+                                            <th width="150">تعداد</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody id="materialsContainer">
+
+                                    </tbody>
+
+                                </table>
+
+                            </div>
                             <div class="col-md-12">
                                 <label class="form-label">توضیحات</label>
 
@@ -506,6 +522,56 @@
     </div>
 
     <script>
+        document.getElementById("createOperationForm")
+            .addEventListener("submit", async function(e) {
+
+                e.preventDefault();
+
+                const form = this;
+                const formData = new FormData(form);
+
+                // فایل‌های Dropzone
+                dz.getAcceptedFiles().forEach(file => {
+                    formData.append('photos[]', file);
+                });
+
+                try {
+
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value,
+                            'Accept': 'application/json'
+                        },
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw result;
+                    }
+
+                    alert("عملیات با موفقیت ثبت شد.");
+
+                    dz.removeAllFiles(true);
+
+                    createOperationModal.hide();
+
+                    await loadRiser();
+
+                } catch (error) {
+
+                    console.log(error);
+
+
+
+                }
+
+            });
+    </script>
+
+    <script>
         const createOperationModal = new bootstrap.Modal(
             document.getElementById("createOperationModal")
         );
@@ -515,6 +581,9 @@
             document.getElementById("createOperationForm").reset();
 
             document.getElementById("operation_riser_id").value = riserData.id;
+            loadMaterials();
+            loadOperationTypes();
+
 
             createOperationModal.show();
 
@@ -619,6 +688,7 @@
 
 
 
+
         function loadInfo() {
 
             document.getElementById('riserCode').innerHTML = riserData.code;
@@ -627,6 +697,59 @@
 
 
             document.getElementById('riserStatus').innerHTML = riserData.status || 'نامشخص';
+
+        }
+
+        async function loadOperationTypes() {
+
+
+            const opc = riserData.operation_cat;
+
+            const select = document.getElementById('operationcat');
+
+            select.innerHTML = '<option value="">انتخاب کنید</option>';
+
+            opc.forEach(item => {
+                select.innerHTML += `
+                    <option value="${item.id}">
+                        ${item.title}
+                    </option>
+                `;
+            });
+
+        }
+
+        async function loadMaterials() {
+
+
+            const materials = riserData.material;
+
+            let html = '';
+
+            materials.forEach(material => {
+
+                html += `
+            <tr>
+
+                <td>${material.title}</td>
+
+                <td>${material.unit}</td>
+
+                <td>
+                    <input
+                        type="number"
+                        class="form-control"
+                        min="0"
+                        value="0"
+                        name="materials[${material.id}]">
+                </td>
+
+            </tr>
+        `;
+
+            });
+
+            document.getElementById('materialsContainer').innerHTML = html;
 
         }
 

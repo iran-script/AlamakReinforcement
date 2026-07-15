@@ -5,6 +5,7 @@
     </button>
 
     {{ auth()->user()->name }}
+    <hr>
 
     @foreach ($menus as $menu)
         @include('menus.item', ['menu' => $menu])

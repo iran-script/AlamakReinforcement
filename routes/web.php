@@ -52,7 +52,6 @@ Route::post('/logout', function (Request $request) {
     $request->session()->regenerateToken();
 
     return redirect()->route('login');
-
 })->name('logout');
 
 
@@ -80,7 +79,6 @@ Route::prefix('api')->group(function () {
         RiserController::class,
         'details'
     ])->name('riser.details');
-
 });
 
 
@@ -253,7 +251,6 @@ Route::middleware('auth')->group(function () {
             ZoneController::class,
             'destroy'
         ])->name('zones.destroy');
-
     });
 
 
@@ -341,9 +338,6 @@ Route::middleware('auth')->group(function () {
             'exportExcel'
         ]
     )->name('reports.export-excel');
-
-
-
 });
 
 
@@ -367,5 +361,4 @@ Route::middleware([
     )->except([
         'show'
     ]);
-
 });

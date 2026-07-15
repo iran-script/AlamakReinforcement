@@ -52,6 +52,15 @@ class RiserController extends Controller
 
         }
 
+        $operation_cat = DB::table('operation_categories')
+        ->orderBy('id')
+        ->get();
+        
+        $material=DB::table('materials')
+        ->orderBy('id')
+        ->get();
+       
+
 
         /*
         |--------------------------------------------------------------------------
@@ -89,35 +98,26 @@ class RiserController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        // $operations=DB::table('riser_operation')
+        $operations=DB::table('operations')
 
-        //     ->where('riser_id',$id)
+            ->where('riser_id',$id)
+            ->get()
 
-        //     ->orderByDesc('operation_date')
+            ->map(function($item){
 
-        //     ->get()
+                return [
 
-        //     ->map(function($item){
+                    'id'=>$item->id,
 
-        //         return [
+                    'date'=>$item->operation_date,
 
-        //             'id'=>$item->id,
+                    'status'=>$item->status,
 
-        //             'date'=>$item->operation_date,
+                    'description'=>$item->description
 
-        //             'operation'=>$item->operation_name,
+                ];
 
-        //             'contractor'=>$item->contractor,
-
-        //             'status'=>$item->status,
-
-        //             'cost'=>number_format($item->cost),
-
-        //             'description'=>$item->description
-
-        //         ];
-
-        //     });
+            });
 
 
 
@@ -194,6 +194,9 @@ class RiserController extends Controller
             'id'=>$riser->id,
 
             'code'=>$riser->r_giscode,
+            
+            'operation_cat'=>$operation_cat,
+            'material'=>$material,
 
             // 'subscription'=>$riser->subscription,
 
@@ -215,7 +218,7 @@ class RiserController extends Controller
 
             // 'photos'=>$photos,
 
-            // 'operations'=>$operations,
+            'operations'=>$operations,
 
             // 'supervisors'=>$supervisors
 

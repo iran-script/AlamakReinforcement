@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Operation;
 use Illuminate\Http\Request;
+use App\Models\OperationMaterial;
 
 class OperationController extends Controller
 {
@@ -28,7 +29,34 @@ class OperationController extends Controller
      */
     public function store(Request $request)
     {
-        //
+        $operation = Operation::create([
+            'riser_id' => $request->riser_id,
+            'operation_category_id' => $request->operationcat,
+            'status' => $request->status,
+            'priority' => $request->priority,
+            'description' => $request->description,
+            'operation_date' => now(),
+        ]);
+
+        foreach ($request->materials ?? [] as $materialId => $qty) {
+
+            if ($qty <= 0) {
+                continue;
+            }
+
+            OperationMaterial::create([
+                'operation_id' => $operation->id,
+                'material_id'  => $materialId,
+                'qty'          => $qty,
+                'price'        => 0,
+                'total'        => 0,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'عملیات ثبت شد.'
+        ]);
     }
 
     /**
