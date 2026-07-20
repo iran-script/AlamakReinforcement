@@ -20,6 +20,7 @@ use App\Http\Controllers\OperationCategoryController;
 use App\Http\Controllers\MaterialCategoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\MbtilesController;
 
 
 /*
@@ -60,6 +61,8 @@ Route::post('/logout', function (Request $request) {
     return redirect()->route('landing');
 })->name('logout');
 
+
+Route::get('/tiles/{z}/{x}/{y}.png', [MbtilesController::class,'tile']);
 
 // Hash test
 Route::get('/hash', function () {

@@ -313,12 +313,18 @@
             }
         });
 
+        const osm = new ol.layer.Tile({
+            source: new ol.source.XYZ({
+                url: '{{ url('/tiles/{z}/{x}/{y}.png') }}'
+            })
+        });
+
+
+
         map = new ol.Map({
             target: 'map',
             layers: [
-                new ol.layer.Tile({
-                    source: new ol.source.OSM()
-                }),
+                osm,
                 vectorTileLayer
             ],
             view: new ol.View({
