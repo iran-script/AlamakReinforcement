@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Operation;
 use Illuminate\Http\Request;
 use App\Models\OperationMaterial;
+use App\Models\Riser;
 
 class OperationController extends Controller
 {
@@ -36,7 +37,13 @@ class OperationController extends Controller
             'priority' => $request->priority,
             'description' => $request->description,
             'operation_date' => now(),
+            'user_id'=>auth()->id(),
         ]);
+
+        $riser = Riser::findOrFail($request->riser_id);
+        $riser->status = 'pending';
+        $riser->save();
+        
 
         foreach ($request->materials ?? [] as $materialId => $qty) {
 

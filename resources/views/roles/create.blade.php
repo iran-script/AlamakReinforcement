@@ -4,22 +4,22 @@
 
 @section('content')
 
-<div class="card-box">
+<div class="page-eyebrow">ROLES / جدید</div>
+<div class="page-heading">
+    <h4><i class="bi bi-shield-plus text-primary"></i> ایجاد نقش</h4>
+</div>
 
-<form method="POST"
-      action="{{ route('roles.store') }}">
+<div class="card-box p-3 p-md-4" style="max-width: 560px;">
 
-    @csrf
+    <form method="POST" action="{{ route('roles.store') }}">
+        @csrf
+        @include('roles._form')
 
-    @include('roles._form')
-
-    <button class="btn btn-success">
-
-        ذخیره
-
-    </button>
-
-</form>
+        <button class="btn btn-success">
+            <i class="bi bi-check-circle"></i>
+            ذخیره
+        </button>
+    </form>
 
 </div>
 

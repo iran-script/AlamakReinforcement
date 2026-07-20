@@ -4,77 +4,197 @@
 
 @section('content')
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v9.2.4/ol.css">
-<script src="https://cdn.jsdelivr.net/npm/ol@v9.2.4/dist/ol.js"></script>
+    <link href="{{ url('css/ol.css') }}" rel="stylesheet">
+    <script src="{{ asset('js/ol.js') }}"></script>
 
 
-<style>
-.map-wrapper {
-    position: relative;
-}
+    <style>
+        .map-wrapper {
+            position: relative;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+        }
 
-#map {
-    width: 100%;
-    height: 85vh;
-    border-radius: 10px;
-}
+        #map {
+            width: 100%;
+            height: calc(100vh - 200px);
+            min-height: 420px;
+        }
 
-/* TOOLBAR */
-.toolbar {
-    position: absolute;
-    top: 10px;
-    left: 20px;
-    right: 20px;
-    z-index: 1000;
+        /* TOOLBAR */
+        .toolbar {
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            right: 16px;
+            z-index: 1000;
 
-    background: white;
-    padding: 10px;
-    border-radius: 10px;
+            background: rgba(255, 255, 255, .96);
+            backdrop-filter: blur(6px);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            border-radius: 12px;
 
-    display: flex;
-    gap: 10px;
-    align-items: center;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
 
-    box-shadow: 0 0 10px rgba(0,0,0,0.1);
-}
+            box-shadow: var(--shadow-md);
+            color: var(--text-muted);
+            font-size: 13px;
+        }
 
-.toolbar select,
-.toolbar input {
-    padding: 6px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-}
+        .toolbar-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
 
-/* INFO PANEL */
-.info-panel {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
+        .toolbar select,
+        .toolbar input {
+            padding: 7px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 13px;
+        }
 
-    width: 300px;
-    background: white;
-    padding: 15px;
-    border-radius: 10px;
+        .toolbar select:focus,
+        .toolbar input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 .15rem var(--primary-soft);
+        }
 
-    z-index: 1000;
-    box-shadow: 0 0 10px rgba(0,0,0,0.2);
-}
-</style>
+        .toolbar .legend {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-inline-start: auto;
+            font-size: 12px;
+        }
 
-<div class="map-wrapper">
+        .toolbar .legend span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
 
-    <!-- TOOLBAR -->
-    <div class="toolbar">
+        .toolbar .legend i.dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
 
-        وضعیت:
-        <select id="statusFilter" onchange="applyStatusFilter()">
-            <option value="all">همه</option>
-            <option value="done">تعمیر شده</option>
-            <option value="pending">تعمیر نشده</option>
-        </select>
+        .dot-done {
+            background: var(--success);
+        }
 
-        <!-- LAYER SWITCHER -->
-        {{-- لایه:
+        .dot-pending {
+            background: var(--danger);
+        }
+
+        /* INFO PANEL */
+        .info-panel {
+            position: absolute;
+            bottom: 18px;
+            right: 18px;
+
+            width: 290px;
+            max-width: calc(100% - 36px);
+            background: rgba(255, 255, 255, .97);
+            backdrop-filter: blur(6px);
+            border: 1px solid var(--border);
+            padding: 15px;
+            border-radius: 12px;
+
+            z-index: 1000;
+            box-shadow: var(--shadow-md);
+        }
+
+        .info-panel h6 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .info-panel hr {
+            border-color: var(--border);
+            margin: 0 0 10px;
+        }
+
+        #info {
+            color: var(--text);
+            font-size: 13.5px;
+            line-height: 1.9;
+        }
+
+        #info b {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        #info .plate {
+            margin-top: 2px;
+        }
+
+        @media (max-width: 575.98px) {
+            .toolbar {
+                position: static;
+                margin-bottom: 12px;
+                box-shadow: var(--shadow-sm);
+            }
+
+            .toolbar .legend {
+                margin-inline-start: 0;
+                width: 100%;
+            }
+
+            #map {
+                height: 55vh;
+            }
+
+            .info-panel {
+                position: static;
+                width: 100%;
+                max-width: none;
+                margin-top: 12px;
+            }
+        }
+    </style>
+
+    <div class="page-eyebrow">GIS / نقشه عملیاتی</div>
+    <div class="page-heading">
+        <h4><i class="bi bi-geo-alt text-primary"></i> نقشه علمک‌ها</h4>
+    </div>
+
+    <div class="map-wrapper">
+
+        <!-- TOOLBAR -->
+        <div class="toolbar">
+
+            <span class="toolbar-label"><i class="bi bi-sliders"></i> وضعیت:</span>
+            <select id="statusFilter" onchange="applyStatusFilter()">
+                <option value="all">همه</option>
+                <option value="pending">تعمیر شده</option>
+                <option value="default">تعمیر نشده</option>
+                <option value="success"> تایید شده</option>
+                <option value="error"> رد شده</option>
+            </select>
+
+            <!-- LAYER SWITCHER -->
+            {{-- لایه:
         <select id="layerSwitcher" onchange="switchLayer()">
             <option value="riser">Riser</option>
             <option value="valve">Valve</option>
@@ -82,289 +202,298 @@
         </select> --}}
 
 
-        <button id="btnHideZone" type="button" class="btn btn-outline-danger" title="حذف  ترسیمات">
-            <i class="bi bi-scissors"></i>
-        </button>
+            <button id="btnHideZone" type="button" class="btn btn-outline-danger btn-sm" title="حذف  ترسیمات">
+                <i class="bi bi-scissors"></i>
+                حذف ترسیمات
+            </button>
 
-        {{-- <input type="text" id="searchBox" placeholder="جستجوی کد..." style="margin-right: 30px">
+            <div class="legend">
+                <span><i class="dot dot-done"></i> تعمیر شده</span>
+                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
+            </div>
+
+            {{-- <input type="text" id="searchBox" placeholder="جستجوی کد..." style="margin-right: 30px">
 
         <button class="btn btn-primary btn-sm" onclick="applyFilter()">
             فیلتر
 \\
         </button> --}}
 
+        </div>
+
+        <!-- MAP -->
+        <div id="map"></div>
+
+        <!-- INFO -->
+        <div class="info-panel">
+            <h6><i class="bi bi-geo-alt-fill text-primary"></i> اطلاعات عارضه</h6>
+            <hr>
+            <div id="info">روی یک نقطه کلیک کنید</div>
+        </div>
+
+
+
     </div>
 
-    <!-- MAP -->
-    <div id="map"></div>
+    <script>
+        let currentLayer = 'riser';
 
-    <!-- INFO -->
-    <div class="info-panel">
-        <h6>اطلاعات عارضه</h6>
-        <hr>
-        <div id="info">روی یک نقطه کلیک کنید</div>
-    </div>
+        const styleCache = {};
+        const featureIndex = {};
 
-    
-
-</div>
-
-<script>
-let currentLayer = 'riser';
-
-const styleCache = {};
-const featureIndex = {};
-
-function getTileUrl(layer) {
-    return `{{ url('/tiles') }}/${layer}/{z}/{x}/{y}.pbf`;
-}
-
-function getStyle(status, code) {
-
-    const key = status + '_' + (code || '');
-
-    if (!styleCache[key]) {
-
-        styleCache[key] = new ol.style.Style({
-
-            image: new ol.style.Circle({
-                radius: 5,
-                fill: new ol.style.Fill({
-                    color: status === 'done' ? '#2ecc71' : '#e74c3c'
-                }),
-                stroke: new ol.style.Stroke({
-                    color: '#fff',
-                    width: 3
-                })
-            }),
-
-            text: new ol.style.Text({
-                text: code || '',
-                offsetY: -15,
-                font: '12px Tahoma',
-                fill: new ol.style.Fill({
-                    color: '#111'
-                }),
-                stroke: new ol.style.Stroke({
-                    color: '#fff',
-                    width: 3
-                })
-            })
-        });
-    }
-
-    return styleCache[key];
-}
-
-let vectorTileLayer = new ol.layer.VectorTile({
-    declutter: true,
-    source: new ol.source.VectorTile({
-        format: new ol.format.MVT(),
-        url: getTileUrl(currentLayer),
-        cacheSize: 512
-    }),
-
-    style: function(feature) {
-
-        const code = feature.get('code');
-
-        if (code) {
-            const key = currentLayer + '_' + code;
-            featureIndex[key] = feature;
+        function getTileUrl(layer) {
+            return `{{ url('/tiles') }}/${layer}/{z}/{x}/{y}.pbf`;
         }
 
-        return getStyle(
-            feature.get('status'),
-            code
-        );
-    }
-});
+        function getStyle(status, code) {
 
- map = new ol.Map({
-    target: 'map',
-    layers: [
-        new ol.layer.Tile({
-            source: new ol.source.OSM()
-        }),
-        vectorTileLayer
-    ],
-    view: new ol.View({
-        center: ol.proj.fromLonLat([49.5, 34.0]),
-        zoom: 10
-    })
-});
+            const key = status + '_' + (code || '');
 
-const riserShowRoute = @json(route('riser.show', ['id' => '__ID__']));
-/* CLICK */
-map.on('click', function(evt) {
+            const statusColors = {
+                default: '#5c6161',
+                pending: '#f1c40f', // زرد
+                success: '#2ecc71', // سبز
+                error: '#e74c3c' // قرمز
+            };
 
-    const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
+            if (!styleCache[key]) {
 
-    if (feature) {
-        document.getElementById('info').innerHTML = `
-            <b>کد:</b> ${feature.get('code')}<br>
+                styleCache[key] = new ol.style.Style({
+
+                    image: new ol.style.Circle({
+                        radius: 6,
+                        fill: new ol.style.Fill({
+                            color: statusColors[status] || '#95a5a6'
+                        }),
+                        stroke: new ol.style.Stroke({
+                            color: '#fff',
+                            width: 3
+                        })
+                    }),
+
+                    text: new ol.style.Text({
+                        text: code || '',
+                        offsetY: -16,
+                        font: '600 12px Vazirmatn, Tahoma',
+                        fill: new ol.style.Fill({
+                            color: '#1F2430'
+                        }),
+                        stroke: new ol.style.Stroke({
+                            color: '#ffffff',
+                            width: 3
+                        })
+                    })
+                });
+            }
+
+            return styleCache[key];
+        }
+
+        let vectorTileLayer = new ol.layer.VectorTile({
+            declutter: true,
+            source: new ol.source.VectorTile({
+                format: new ol.format.MVT(),
+                url: getTileUrl(currentLayer),
+                cacheSize: 512
+            }),
+
+            style: function(feature) {
+
+                const code = feature.get('code');
+
+                if (code) {
+                    const key = currentLayer + '_' + code;
+                    featureIndex[key] = feature;
+                }
+
+                return getStyle(
+                    feature.get('status'),
+                    code
+                );
+            }
+        });
+
+        map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                }),
+                vectorTileLayer
+            ],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([49.5, 34.0]),
+                zoom: 10
+            })
+        });
+
+        const riserShowRoute = @json(route('riser.show', ['id' => '__ID__']));
+        /* CLICK */
+        map.on('click', function(evt) {
+
+            const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
+
+            if (feature) {
+                document.getElementById('info').innerHTML = `
+            <b>کد:</b><br>
+            <span class="plate">${feature.get('code')}</span><br><br>
             <b>وضعیت:</b> ${feature.get('status')}<br><br>
 
-            <button class="btn btn-primary btn-sm"
+            <button class="btn btn-primary btn-sm w-100"
                     onclick="openRiserDetails(${feature.get('id')})">
                 <i class="bi bi-eye"></i>
                 مشاهده اطلاعات کامل
             </button>
         `;
-    }
-});
+            }
+        });
 
-function openRiserDetails(id)
-{
-    if (!id) {
-        alert('شناسه علمک پیدا نشد.');
-        return;
-    }
+        function openRiserDetails(id) {
+            if (!id) {
+                alert('شناسه علمک پیدا نشد.');
+                return;
+            }
 
-    window.location.href = riserShowRoute.replace('__ID__', id);
-}
+            window.location.href = riserShowRoute.replace('__ID__', id);
+        }
 
-/* SEARCH */
-function applyFilter() {
+        /* SEARCH */
+        function applyFilter() {
 
-    const code = document.getElementById('searchBox').value.trim();
-    if (!code) return;
+            const code = document.getElementById('searchBox').value.trim();
+            if (!code) return;
 
-    const key = currentLayer + '_' + code;
-    const feature = featureIndex[key];
+            const key = currentLayer + '_' + code;
+            const feature = featureIndex[key];
 
-    if (!feature) {
-        alert('در این لایه پیدا نشد');
-        return;
-    }
+            if (!feature) {
+                alert('در این لایه پیدا نشد');
+                return;
+            }
 
-    const coordinate = ol.extent.getCenter(feature.getGeometry().getExtent());
+            const coordinate = ol.extent.getCenter(feature.getGeometry().getExtent());
 
-    map.getView().animate({
-        center: coordinate,
-        zoom: 20,
-        duration: 1000
-    });
+            map.getView().animate({
+                center: coordinate,
+                zoom: 20,
+                duration: 1000
+            });
 
-    document.getElementById('info').innerHTML = `
+            document.getElementById('info').innerHTML = `
         <b>کد:</b> ${feature.get('code')}<br>
         <b>وضعیت:</b> ${feature.get('status')}
     `;
-}
-
-/* STATUS FILTER */
-function applyStatusFilter() {
-
-    const status = document.getElementById('statusFilter').value;
-
-    vectorTileLayer.setStyle(function(feature) {
-
-        const featureStatus = feature.get('status');
-
-        if (status !== 'all' && featureStatus !== status) {
-            return null;
         }
 
-        return getStyle(
-            featureStatus,
-            feature.get('code')
-        );
-    });
+        /* STATUS FILTER */
+        function applyStatusFilter() {
 
-    vectorTileLayer.changed();
-}
+            const status = document.getElementById('statusFilter').value;
 
-/* SWITCH LAYER */
-function switchLayer() {
+            vectorTileLayer.setStyle(function(feature) {
 
-    currentLayer = document.getElementById('layerSwitcher').value;
+                const featureStatus = feature.get('status');
 
-    // reset index
-    Object.keys(featureIndex).forEach(k => delete featureIndex[k]);
-
-    vectorTileLayer.setSource(
-        new ol.source.VectorTile({
-            format: new ol.format.MVT(),
-            url: getTileUrl(currentLayer),
-            cacheSize: 512
-        })
-    );
-
-    vectorTileLayer.changed();
-}
-
-fetch('{{ route('myextent') }}')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('زون کاربر دریافت نشد.');
-        }
-
-        return response.json();
-    })
-    .then(data => {
-        // superadmin آزاد است و نقشه جابه‌جا نمی‌شود
-        if (data.is_superadmin) {
-            return;
-        }
-
-        if (!data.geometry) {
-            return;
-        }
-
-        const zoneFeature = new ol.format.GeoJSON().readFeature(
-            {
-                type: 'Feature',
-                geometry: data.geometry,
-                properties: {
-                    name: data.zone_name
+                if (status !== 'all' && featureStatus !== status) {
+                    return null;
                 }
-            },
-            {
-                dataProjection: 'EPSG:4326',
-                featureProjection: 'EPSG:3857'
-            }
-        );
 
-        // نمایش کادر زون روی نقشه
-        zoneLayer = new ol.layer.Vector({
-            source: new ol.source.Vector({
-                features: [zoneFeature]
-            }),
-            style: new ol.style.Style({
-                stroke: new ol.style.Stroke({
-                    color: '#dc3545',
-                    width: 3
-                }),
-                fill: new ol.style.Fill({
-                    color: 'rgba(220, 53, 69, 0.10)'
-                })
-            })
-        });
+                return getStyle(
+                    featureStatus,
+                    feature.get('code')
+                );
+            });
 
-        map.addLayer(zoneLayer);
-
-        // زوم نقشه روی محدوده زون کاربر
-        map.getView().fit(zoneFeature.getGeometry().getExtent(), {
-            padding: [70, 70, 70, 70],
-            duration: 700,
-            maxZoom: 14
-        });
-    })
-    .catch(error => {
-        console.error(error);
-    });
-
-    document.getElementById('btnHideZone').addEventListener('click', function () {
-    if (!zoneLayer) {
-        return;
+            vectorTileLayer.changed();
         }
 
-        map.removeLayer(zoneLayer);
-        zoneLayer = null;
+        /* SWITCH LAYER */
+        function switchLayer() {
 
-        
-    });
+            currentLayer = document.getElementById('layerSwitcher').value;
 
-</script>
+            // reset index
+            Object.keys(featureIndex).forEach(k => delete featureIndex[k]);
+
+            vectorTileLayer.setSource(
+                new ol.source.VectorTile({
+                    format: new ol.format.MVT(),
+                    url: getTileUrl(currentLayer),
+                    cacheSize: 512
+                })
+            );
+
+            vectorTileLayer.changed();
+        }
+
+        fetch('{{ route('myextent') }}')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('زون کاربر دریافت نشد.');
+                }
+
+                return response.json();
+            })
+            .then(data => {
+                // superadmin آزاد است و نقشه جابه‌جا نمی‌شود
+                if (data.is_superadmin) {
+                    return;
+                }
+
+                if (!data.geometry) {
+                    return;
+                }
+
+                const zoneFeature = new ol.format.GeoJSON().readFeature({
+                    type: 'Feature',
+                    geometry: data.geometry,
+                    properties: {
+                        name: data.zone_name
+                    }
+                }, {
+                    dataProjection: 'EPSG:4326',
+                    featureProjection: 'EPSG:3857'
+                });
+
+                // نمایش کادر زون روی نقشه
+                zoneLayer = new ol.layer.Vector({
+                    source: new ol.source.Vector({
+                        features: [zoneFeature]
+                    }),
+                    style: new ol.style.Style({
+                        stroke: new ol.style.Stroke({
+                            color: '#3E63DD',
+                            width: 3
+                        }),
+                        fill: new ol.style.Fill({
+                            color: 'rgba(62, 99, 221, 0.08)'
+                        })
+                    })
+                });
+
+                map.addLayer(zoneLayer);
+
+                // زوم نقشه روی محدوده زون کاربر
+                map.getView().fit(zoneFeature.getGeometry().getExtent(), {
+                    padding: [70, 70, 70, 70],
+                    duration: 700,
+                    maxZoom: 14
+                });
+            })
+            .catch(error => {
+                console.error(error);
+            });
+
+        document.getElementById('btnHideZone').addEventListener('click', function() {
+            if (!zoneLayer) {
+                return;
+            }
+
+            map.removeLayer(zoneLayer);
+            zoneLayer = null;
+
+
+        });
+    </script>
 
 @endsection

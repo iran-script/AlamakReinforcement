@@ -4,49 +4,28 @@
 
 @section('content')
 
-<div class="container-fluid">
+<div class="page-eyebrow">MATERIALS / جدید</div>
+<div class="page-heading">
+    <h4><i class="bi bi-box-seam text-primary"></i> ثبت مصالح جدید</h4>
+</div>
 
-    <div class="card shadow">
+<div class="card-box" style="max-width: 900px;">
 
-        <div class="card-header">
+    <div class="card-body p-3 p-md-4">
 
-            <h5 class="mb-0">
+        @if($errors->any())
+            <div class="alert alert-danger">
+                <ul class="mb-0 ps-3">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
-                ثبت مصالح جدید
-
-            </h5>
-
-        </div>
-
-        <div class="card-body">
-
-            @if($errors->any())
-
-                <div class="alert alert-danger">
-
-                    <ul class="mb-0">
-
-                        @foreach($errors->all() as $error)
-
-                            <li>{{ $error }}</li>
-
-                        @endforeach
-
-                    </ul>
-
-                </div>
-
-            @endif
-
-            <form
-                action="{{ route('material.store') }}"
-                method="POST">
-
-                @include('material._form')
-
-            </form>
-
-        </div>
+        <form action="{{ route('material.store') }}" method="POST">
+            @include('material._form')
+        </form>
 
     </div>
 

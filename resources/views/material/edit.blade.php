@@ -4,53 +4,30 @@
 
 @section('content')
 
-<div class="container-fluid">
+<div class="page-eyebrow">MATERIALS / ویرایش</div>
+<div class="page-heading">
+    <h4><i class="bi bi-pencil-square text-primary"></i> ویرایش مصالح</h4>
+</div>
 
-    <div class="card shadow">
+<div class="card-box" style="max-width: 900px;">
 
-        <div class="card-header">
+    <div class="card-body p-3 p-md-4">
 
-            <h5 class="mb-0">
+        @if($errors->any())
+            <div class="alert alert-danger">
+                <ul class="mb-0 ps-3">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
-                ویرایش مصالح
-
-            </h5>
-
-        </div>
-
-        <div class="card-body">
-
-            @if($errors->any())
-
-                <div class="alert alert-danger">
-
-                    <ul class="mb-0">
-
-                        @foreach($errors->all() as $error)
-
-                            <li>{{ $error }}</li>
-
-                        @endforeach
-
-                    </ul>
-
-                </div>
-
-            @endif
-
-            <form
-                action="{{ route('material.update',$material) }}"
-                method="POST">
-
-                @csrf
-
-                @method('PUT')
-
-                @include('material._form')
-
-            </form>
-
-        </div>
+        <form action="{{ route('material.update',$material) }}" method="POST">
+            @csrf
+            @method('PUT')
+            @include('material._form')
+        </form>
 
     </div>
 

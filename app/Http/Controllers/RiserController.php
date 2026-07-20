@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Riser;
+use App\Models\Operation;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class RiserController extends Controller
@@ -21,8 +23,8 @@ class RiserController extends Controller
      */
     public function show($id)
     {
-        return view('riser.show',[
-            'id'=>$id
+        return view('riser.show', [
+            'id' => $id
         ]);
     }
 
@@ -39,27 +41,34 @@ class RiserController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $riser=DB::table('riser')
-            ->where('id',$id)
+        $riser = DB::table('riser')
+            ->where('id', $id)
             ->first();
 
-        if(!$riser){
+        $zone = DB::table('zone')
+            ->whereRaw(
+                'ST_Contains(geom, ST_Transform(?,32639))',
+                [$riser->geom]
+            )
+            ->first();
+
+
+        if (!$riser) {
 
             return response()->json([
-                'success'=>false,
-                'message'=>'علمک پیدا نشد.'
-            ],404);
-
+                'success' => false,
+                'message' => 'علمک پیدا نشد.'
+            ], 404);
         }
 
         $operation_cat = DB::table('operation_categories')
-        ->orderBy('id')
-        ->get();
-        
-        $material=DB::table('materials')
-        ->orderBy('id')
-        ->get();
-       
+            ->orderBy('id')
+            ->get();
+
+        $material = DB::table('materials')
+            ->orderBy('id')
+            ->get();
+
 
 
         /*
@@ -98,25 +107,21 @@ class RiserController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $operations=DB::table('operations')
-
-            ->where('riser_id',$id)
+        $operations = Operation::with('operationMaterial')
+        ->with('operationCategory')
+        ->with('user')
+            ->where('riser_id', $id)
             ->get()
-
-            ->map(function($item){
-
+            ->map(function ($item) {
                 return [
-
-                    'id'=>$item->id,
-
-                    'date'=>$item->operation_date,
-
-                    'status'=>$item->status,
-
-                    'description'=>$item->description
-
+                    'id' => $item->id,
+                    'opencat'=>$item->operationCategory,
+                    'date' => $item->operation_date,
+                    'user' => $item->user,
+                    'status' => $item->status,
+                    'description' => $item->description,
+                    'materials' => $item->operationMaterial,
                 ];
-
             });
 
 
@@ -127,57 +132,9 @@ class RiserController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        // $supervisors=DB::table('riser_operation_supervisor')
+        // $supervisors = User::role('supervisor')->where('zone_id', $zone->id)->get();
 
-        //     ->join(
-        //         'users',
-        //         'users.id',
-        //         '=',
-        //         'riser_operation_supervisor.user_id'
-        //     )
 
-        //     ->join(
-        //         'riser_operation',
-        //         'riser_operation.id',
-        //         '=',
-        //         'riser_operation_supervisor.operation_id'
-        //     )
-
-        //     ->where('riser_operation.riser_id',$id)
-
-        //     ->select(
-
-        //         'users.name',
-
-        //         'users.position',
-
-        //         'riser_operation.operation_name',
-
-        //         'riser_operation_supervisor.approved_at',
-
-        //         'riser_operation_supervisor.result'
-
-        //     )
-
-        //     ->get()
-
-        //     ->map(function($item){
-
-        //         return [
-
-        //             'operation'=>$item->operation_name,
-
-        //             'name'=>$item->name,
-
-        //             'position'=>$item->position,
-
-        //             'date'=>$item->approved_at,
-
-        //             'result'=>$item->result
-
-        //         ];
-
-        //     });
 
 
 
@@ -189,14 +146,14 @@ class RiserController extends Controller
 
         return response()->json([
 
-            'success'=>true,
+            'success' => true,
 
-            'id'=>$riser->id,
+            'id' => $riser->id,
 
-            'code'=>$riser->r_giscode,
-            
-            'operation_cat'=>$operation_cat,
-            'material'=>$material,
+            'code' => $riser->r_giscode,
+
+            'operation_cat' => $operation_cat,
+            'material' => $material,
 
             // 'subscription'=>$riser->subscription,
 
@@ -218,13 +175,10 @@ class RiserController extends Controller
 
             // 'photos'=>$photos,
 
-            'operations'=>$operations,
+            'operations' => $operations,
 
             // 'supervisors'=>$supervisors
 
         ]);
-
     }
-
 }
-

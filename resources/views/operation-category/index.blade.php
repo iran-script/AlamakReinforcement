@@ -4,150 +4,90 @@
 
 @section('content')
 
-<div class="container-fluid">
+<div class="page-eyebrow">OPERATION CATEGORIES</div>
+<div class="page-heading">
+    <h4><i class="bi bi-tools text-primary"></i> دسته بندی عملیات</h4>
 
-    <div class="card shadow-sm">
+    <a href="{{ route('operation-category.create') }}" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i>
+        افزودن
+    </a>
+</div>
 
-        <div class="card-header d-flex justify-content-between align-items-center">
+<div class="card-box">
 
-            <h5 class="mb-0">
-                دسته بندی عملیات
-            </h5>
+    <div class="card-body p-3">
 
-            <a href="{{ route('operation-category.create') }}"
-               class="btn btn-primary">
+        @if(session('success'))
+            <div class="alert alert-success">
+                {{ session('success') }}
+            </div>
+        @endif
 
-                <i class="bi bi-plus-circle"></i>
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover align-middle mb-0">
 
-                افزودن
-
-            </a>
-
-        </div>
-
-        <div class="card-body">
-
-            @if(session('success'))
-
-                <div class="alert alert-success">
-
-                    {{ session('success') }}
-
-                </div>
-
-            @endif
-
-            <table class="table table-bordered table-hover align-middle">
-
-                <thead class="table-light">
-
-                <tr>
-
-                    <th width="70">ردیف</th>
-
-                    <th>عنوان</th>
-
-                    <th>کد</th>
-
-                    <th>ترتیب</th>
-
-                    <th>وضعیت</th>
-
-                    <th width="170">عملیات</th>
-
-                </tr>
-
+                <thead>
+                    <tr>
+                        <th width="70">ردیف</th>
+                        <th>عنوان</th>
+                        <th>کد</th>
+                        <th>ترتیب</th>
+                        <th>وضعیت</th>
+                        <th width="170">عملیات</th>
+                    </tr>
                 </thead>
 
                 <tbody>
 
-                @forelse($items as $item)
+                    @forelse($items as $item)
+                        <tr>
+                            <td>{{ $loop->iteration }}</td>
+                            <td>{{ $item->title }}</td>
+                            <td>{{ $item->code }}</td>
+                            <td>{{ $item->sort }}</td>
+                            <td>
+                                @if($item->is_active)
+                                    <span class="status-pill status-done">فعال</span>
+                                @else
+                                    <span class="status-pill status-reject">غیرفعال</span>
+                                @endif
+                            </td>
+                            <td>
+                                <a href="{{ route('operation-category.edit',$item) }}" class="btn btn-warning btn-sm">
+                                    <i class="bi bi-pencil"></i>
+                                    ویرایش
+                                </a>
 
-                    <tr>
+                                <form action="{{ route('operation-category.destroy',$item) }}" method="POST" class="d-inline">
+                                    @csrf
+                                    @method('DELETE')
 
-                        <td>{{ $loop->iteration }}</td>
-
-                        <td>{{ $item->title }}</td>
-
-                        <td>{{ $item->code }}</td>
-
-                        <td>{{ $item->sort }}</td>
-
-                        <td>
-
-                            @if($item->is_active)
-
-                                <span class="badge bg-success">
-
-                                    فعال
-
-                                </span>
-
-                            @else
-
-                                <span class="badge bg-danger">
-
-                                    غیرفعال
-
-                                </span>
-
-                            @endif
-
-                        </td>
-
-                        <td>
-
-                            <a href="{{ route('operation-category.edit',$item) }}"
-                               class="btn btn-warning btn-sm">
-
-                                ویرایش
-
-                            </a>
-
-                            <form
-                                action="{{ route('operation-category.destroy',$item) }}"
-                                method="POST"
-                                class="d-inline">
-
-                                @csrf
-
-                                @method('DELETE')
-
-                                <button
-                                    onclick="return confirm('حذف شود؟')"
-                                    class="btn btn-danger btn-sm">
-
-                                    حذف
-
-                                </button>
-
-                            </form>
-
-                        </td>
-
-                    </tr>
-
-                @empty
-
-                    <tr>
-
-                        <td colspan="6"
-                            class="text-center">
-
-                            اطلاعاتی وجود ندارد.
-
-                        </td>
-
-                    </tr>
-
-                @endforelse
+                                    <button onclick="return confirm('حذف شود؟')" class="btn btn-danger btn-sm">
+                                        <i class="bi bi-trash"></i>
+                                        حذف
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6">
+                                <div class="empty-state">
+                                    <i class="bi bi-inbox"></i>
+                                    اطلاعاتی وجود ندارد
+                                </div>
+                            </td>
+                        </tr>
+                    @endforelse
 
                 </tbody>
 
             </table>
+        </div>
 
+        <div class="mt-3">
             {{ $items->links() }}
-
         </div>
 
     </div>

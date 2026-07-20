@@ -4,45 +4,45 @@
 
 @section('content')
 
-    <div class="card-box">
+<div class="page-eyebrow">USERS</div>
+<div class="page-heading">
+    <h4><i class="bi bi-people text-primary"></i> مدیریت کاربران</h4>
 
-        ```
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="mb-0">مدیریت کاربران</h3>
+    <a href="{{ route('users.create') }}" class="btn btn-primary">
+        <i class="bi bi-person-plus"></i>
+        افزودن کاربر
+    </a>
+</div>
 
-            <a href="{{ route('users.create') }}" class="btn btn-primary">
-                <i class="bi bi-person-plus"></i>
-                افزودن کاربر
-            </a>
-        </div>
+@if (session('success'))
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        {{ session('success') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+@endif
 
-        @if (session('success'))
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                {{ session('success') }}
+@if (session('error'))
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        {{ session('error') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+@endif
 
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        @endif
+<div class="card-box">
 
-        @if (session('error'))
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                {{ session('error') }}
-
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        @endif
+    <div class="card-body p-3">
 
         <div class="table-responsive">
-            <table class="table table-bordered table-hover align-middle">
+            <table class="table table-bordered table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th style="width: 70px;">#</th>
+                        <th width="60">#</th>
                         <th>نام</th>
                         <th>نام کاربری</th>
                         <th>ایمیل</th>
                         <th>نقش</th>
                         <th>زون</th>
-                        <th style="width: 130px;">عملیات</th>
+                        <th width="130">عملیات</th>
                     </tr>
                 </thead>
 
@@ -55,20 +55,16 @@
                             <td>{{ $user->email }}</td>
 
                             <td>
-                                @if ($user->role)
+                                @if ($user->roles)
                                     <span class="badge bg-primary">
-                                        {{ $user->role->name }}
+                                        {{ $user->roles[0]->name }}
                                     </span>
                                 @else
-                                    <span class="text-muted">
-                                        بدون نقش
-                                    </span>
+                                    <span class="text-muted">بدون نقش</span>
                                 @endif
                             </td>
 
-                            <td>
-                                {{ $user->zone?->name ?? 'تعیین نشده' }}
-                            </td>
+                            <td>{{ $user->zone?->name ?? 'تعیین نشده' }}</td>
 
                             <td class="text-nowrap">
                                 <a href="{{ route('users.edit', $user) }}" class="btn btn-sm btn-warning"
@@ -92,8 +88,11 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="text-center text-muted py-4">
-                                هیچ کاربری ثبت نشده است.
+                            <td colspan="7">
+                                <div class="empty-state">
+                                    <i class="bi bi-inbox"></i>
+                                    هیچ کاربری ثبت نشده است
+                                </div>
                             </td>
                         </tr>
                     @endforelse
@@ -104,9 +103,11 @@
         <div class="mt-3">
             {{ $users->links() }}
         </div>
-        ```
 
     </div>
+
+</div>
+
 @endsection
 
 @push('scripts')

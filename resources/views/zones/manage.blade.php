@@ -12,26 +12,29 @@
 <style>
     .zone-page {
         display: flex;
-        gap: 15px;
-        height: calc(100vh - 150px);
-        min-height: 650px;
+        gap: 16px;
+        height: calc(100vh - 190px);
+        min-height: 560px;
     }
 
     .zone-sidebar {
         width: 320px;
-        background: #fff;
-        border-radius: 12px;
+        flex: 0 0 320px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
         padding: 18px;
         overflow-y: auto;
-        box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        box-shadow: var(--shadow-sm);
     }
 
     .zone-map-container {
         flex: 1;
         position: relative;
-        border-radius: 12px;
+        border-radius: 14px;
         overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
     }
 
     #map {
@@ -40,18 +43,19 @@
     }
 
     .zone-item {
-        border: 1px solid #e5e5e5;
-        padding: 10px;
-        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
         margin-bottom: 8px;
         cursor: pointer;
-        transition: .2s;
+        transition: .15s;
+        font-size: 13.5px;
     }
 
     .zone-item:hover,
     .zone-item.active {
-        background: #eef6ff;
-        border-color: #0d6efd;
+        background: var(--primary-soft);
+        border-color: var(--primary);
     }
 
     .map-tools {
@@ -59,26 +63,31 @@
         top: 12px;
         left: 12px;
         z-index: 1000;
-        background: white;
+        background: rgba(255,255,255,.96);
+        backdrop-filter: blur(6px);
+        border: 1px solid var(--border);
         border-radius: 10px;
-        padding: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,.15);
+        padding: 8px;
+        box-shadow: var(--shadow-md);
     }
 
-    .map-tools button {
-        margin: 3px;
-    }
+    .map-tools button { margin: 3px; }
 
-    .form-label {
-        font-weight: bold;
+    @media (max-width: 991.98px) {
+        .zone-page { flex-direction: column; height: auto; }
+        .zone-sidebar { width: 100%; flex: none; max-height: 320px; }
+        .zone-map-container { height: 60vh; min-height: 380px; }
     }
 </style>
+
+<div class="page-eyebrow">GIS / ZONES</div>
+<div class="page-heading">
+    <h4><i class="bi bi-bounding-box-circles text-primary"></i> مدیریت زون‌ها</h4>
+</div>
 
 <div class="zone-page">
 
     <div class="zone-sidebar">
-
-        <h4 class="mb-4">مدیریت زون‌ها</h4>
 
         <div class="mb-3">
             <label class="form-label">نام زون</label>
@@ -89,14 +98,17 @@
 
         <div class="d-grid gap-2 mb-4">
             <button class="btn btn-primary" id="saveZoneBtn">
+                <i class="bi bi-check-circle"></i>
                 ذخیره زون
             </button>
 
             <button class="btn btn-warning" id="editZoneBtn" disabled>
+                <i class="bi bi-pencil"></i>
                 ویرایش هندسه
             </button>
 
             <button class="btn btn-danger" id="deleteZoneBtn" disabled>
+                <i class="bi bi-trash"></i>
                 حذف زون
             </button>
 
@@ -107,7 +119,7 @@
 
         <hr>
 
-        <h6 class="mb-3">زون‌های ثبت‌شده</h6>
+        <h6 class="mb-3" style="font-weight: 800;">زون‌های ثبت‌شده</h6>
 
         <div id="zonesList">
             <div class="text-muted">در حال دریافت زون‌ها...</div>
@@ -119,10 +131,12 @@
 
         <div class="map-tools">
             <button class="btn btn-success btn-sm" id="drawPolygonBtn">
+                <i class="bi bi-vector-pen"></i>
                 ترسیم زون جدید
             </button>
 
             <button class="btn btn-outline-danger btn-sm" id="clearDrawBtn">
+                <i class="bi bi-eraser"></i>
                 پاک کردن ترسیم
             </button>
         </div>
@@ -159,18 +173,18 @@ document.addEventListener('DOMContentLoaded', function () {
             return new ol.style.Style({
                 fill: new ol.style.Fill({
                     color: isSelected
-                        ? 'rgba(13, 110, 253, 0.35)'
-                        : 'rgba(25, 135, 84, 0.25)'
+                        ? 'rgba(62, 99, 221, 0.30)'
+                        : 'rgba(18, 148, 111, 0.20)'
                 }),
                 stroke: new ol.style.Stroke({
-                    color: isSelected ? '#0d6efd' : '#198754',
+                    color: isSelected ? '#3E63DD' : '#12946F',
                     width: isSelected ? 3 : 2
                 }),
                 text: new ol.style.Text({
                     text: feature.get('name') || '',
-                    font: 'bold 13px sans-serif',
+                    font: 'bold 13px Vazirmatn, sans-serif',
                     fill: new ol.style.Fill({
-                        color: '#222'
+                        color: '#1F2430'
                     }),
                     stroke: new ol.style.Stroke({
                         color: '#fff',
@@ -281,11 +295,10 @@ document.addEventListener('DOMContentLoaded', function () {
             item.innerHTML = `
                 <strong>${zoneName}</strong>
                 <br>
-                <small class="text-muted">شناسه: ${zoneId}</small>
-                <br>
+                <small class="text-muted">شناسه: ${zoneId ?? '-'}</small>
             `;
 
-            item.addEventListener('click', function () {
+            item.addEventListener('click', function() {
                 selectZone(feature);
             });
 
@@ -318,7 +331,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         const extent = feature.getGeometry().getExtent();
-        console.log(extent);
 
         if (extent) {
             map.getView().fit(extent, {
@@ -353,10 +365,6 @@ document.addEventListener('DOMContentLoaded', function () {
         removeDrawInteraction();
         removeModifyInteraction();
 
-        zoneId = null;
-
-       
-
         // اگر Draw قبلی وجود دارد حذف شود
         if (drawInteraction) {
             map.removeInteraction(drawInteraction);
@@ -366,8 +374,6 @@ document.addEventListener('DOMContentLoaded', function () {
             source: zoneSource,
             type: 'Polygon'
         });
-
-        map.addInteraction(drawInteraction);
 
         map.addInteraction(drawInteraction);
 
@@ -453,9 +459,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const url = hasValidZoneId
         ? zoneRoutes.update.replace('__ZONE_ID__', zoneId)
         : zoneRoutes.store;
-        console.log(zoneId);
 
-    const method = zoneId ? 'PUT' : 'POST';
+        const method = hasValidZoneId ? 'PUT' : 'POST';
 
         fetch(url, {
             method: method,

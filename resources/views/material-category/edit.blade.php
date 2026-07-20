@@ -4,29 +4,23 @@
 
 @section('content')
 
-<div class="container">
+<div class="page-eyebrow">MATERIAL CATEGORIES / ویرایش</div>
+<div class="page-heading">
+    <h4><i class="bi bi-pencil-square text-primary"></i> ویرایش دسته بندی مصالح</h4>
+</div>
 
-    <div class="card">
+<div class="card-box" style="max-width: 760px;">
 
-        <div class="card-header">
+    <div class="card-header">
+        اطلاعات دسته‌بندی
+    </div>
 
-            ویرایش دسته بندی مصالح
+    <div class="card-body p-3 p-md-4">
 
-        </div>
-
-        <div class="card-body">
-
-            <form
-                action="{{ route('material-category.update',$materialCategory) }}"
-                method="POST">
-
-                @method('PUT')
-
-                @include('material-category._form')
-
-            </form>
-
-        </div>
+        <form action="{{ route('material-category.update',$materialCategory) }}" method="POST">
+            @method('PUT')
+            @include('material-category._form')
+        </form>
 
     </div>
 

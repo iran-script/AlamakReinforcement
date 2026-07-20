@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class OperationCategory extends Model
 {
+
+    protected $table ='operation_categories';
     protected $fillable = [
         'title',
         'code',

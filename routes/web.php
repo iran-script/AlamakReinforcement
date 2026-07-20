@@ -31,8 +31,8 @@ use App\Http\Controllers\RoleController;
 
 // Home
 Route::get('/', function () {
-    return redirect()->route('login');
-});
+     return view('landing');
+})->name('landing');
 
 
 // Authentication
@@ -41,7 +41,13 @@ Route::get('/login', [AuthController::class, 'showLogin'])
 
 Route::post('/login', [AuthController::class, 'login'])
     ->name('login.post');
-
+Route::get('/report/excel', [ReportController::class,'excel'])
+    ->name('report.excel');
+    Route::get(
+    '/report/data',
+    [ReportController::class,'data']
+)
+->name('report.data');
 
 // Logout
 Route::post('/logout', function (Request $request) {
@@ -51,7 +57,7 @@ Route::post('/logout', function (Request $request) {
     $request->session()->invalidate();
     $request->session()->regenerateToken();
 
-    return redirect()->route('login');
+    return redirect()->route('landing');
 })->name('logout');
 
 
