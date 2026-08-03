@@ -6,9 +6,16 @@ use App\Models\Operation;
 use Illuminate\Http\Request;
 use App\Models\OperationMaterial;
 use App\Models\Riser;
+use App\Models\Contract;
+use App\Services\WorkflowService;
 
 class OperationController extends Controller
 {
+    // OperationController.php
+    public function __construct(private WorkflowService $workflow) {}
+
+
+   
     /**
      * Display a listing of the resource.
      */
@@ -30,6 +37,7 @@ class OperationController extends Controller
      */
     public function store(Request $request)
     {
+        $contract_id = auth()->user()->contract_id;
         $operation = Operation::create([
             'riser_id' => $request->riser_id,
             'operation_category_id' => $request->operationcat,
@@ -37,13 +45,16 @@ class OperationController extends Controller
             'priority' => $request->priority,
             'description' => $request->description,
             'operation_date' => now(),
-            'user_id'=>auth()->id(),
+            'user_id' => auth()->id(),
+            'contract_id' => $contract_id,
         ]);
 
         $riser = Riser::findOrFail($request->riser_id);
-        $riser->status = 'pending';
+        $riser->status = 'submitOperation';
         $riser->save();
-        
+
+        $technicalInspector = $this->workflow->resolveTechnicalInspector($riser);
+
 
         foreach ($request->materials ?? [] as $materialId => $qty) {
 
@@ -59,6 +70,8 @@ class OperationController extends Controller
                 'total'        => 0,
             ]);
         }
+        $this->workflow->submitOperationForLeakCheck($operation, $technicalInspector);
+
 
         return response()->json([
             'success' => true,

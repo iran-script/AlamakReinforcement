@@ -11,21 +11,18 @@
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
 
     <link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
         :root {
-            --bg:      #F4F6FA;
-            --surface: #FFFFFF;
-            --surface-2: #F8F9FC;
-            --border:  #E6E9F0;
-            --text:    #1F2430;
-            --muted:   #667085;
-            --primary: #3E63DD;
-            --primary-soft: #EAEEFD;
-            --success: #12946F;
-            --success-soft: #E3F6EF;
-            --danger:  #D64545;
-            --danger-soft: #FDECEC;
+            --bg:      #0B1220;
+            --panel:   #121B2E;
+            --panel-2: #16233A;
+            --border:  #223252;
+            --text:    #E7ECF5;
+            --muted:   #8B9AB8;
+            --amber:   #F0A93B;
+            --teal:    #33C6B0;
         }
 
         * { box-sizing: border-box; }
@@ -38,25 +35,45 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
-            background: var(--bg);
+            padding: 24px;
+            background:
+                radial-gradient(1100px 600px at 15% -10%, rgba(76, 141, 255, .12), transparent 55%),
+                radial-gradient(900px 600px at 100% 110%, rgba(240, 169, 59, .10), transparent 55%),
+                var(--bg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(#223252 1px, transparent 1px),
+                linear-gradient(90deg, #223252 1px, transparent 1px);
+            background-size: 42px 42px;
+            opacity: .14;
         }
 
         .rig {
+            position: relative;
+            z-index: 1;
             width: 100%;
-            max-width: 900px;
+            max-width: 920px;
             display: grid;
             grid-template-columns: 1.05fr 1fr;
-            background: var(--surface);
+            background: linear-gradient(180deg, var(--panel-2), var(--panel));
             border: 1px solid var(--border);
             border-radius: 18px;
             overflow: hidden;
-            box-shadow: 0 20px 60px -30px rgba(16,24,40,.25);
+            box-shadow: 0 30px 80px -30px rgba(0,0,0,.7);
         }
 
         .rig-side {
             padding: 44px 38px;
-            background: var(--surface-2);
+            background:
+                repeating-linear-gradient(135deg, rgba(255,255,255,.02) 0 2px, transparent 2px 22px);
             border-inline-end: 1px solid var(--border);
             display: flex;
             flex-direction: column;
@@ -64,20 +81,32 @@
         }
 
         .rig-mark {
-            width: 52px; height: 52px;
+            width: 56px; height: 56px;
             border-radius: 12px;
-            background: var(--primary-soft);
-            color: var(--primary);
+            background: linear-gradient(155deg, #26344F, #131C2C);
+            border: 1px solid var(--border);
             display: flex; align-items: center; justify-content: center;
-            font-size: 24px;
+            color: var(--amber);
+            font-size: 26px;
             margin-bottom: 22px;
         }
 
-        .rig-side h1 { font-size: 20px; font-weight: 800; line-height: 1.7; margin-bottom: 10px; }
-        .rig-side p { color: var(--muted); font-size: 13.5px; line-height: 1.9; }
+        .rig-side h1 {
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .rig-side p {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.9;
+        }
 
         .rig-status {
-            font-size: 12.5px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
             color: var(--muted);
             display: flex;
             align-items: center;
@@ -87,52 +116,69 @@
 
         .rig-status .dot {
             width: 7px; height: 7px; border-radius: 50%;
-            background: var(--success);
-            box-shadow: 0 0 0 3px var(--success-soft);
+            background: var(--teal);
+            box-shadow: 0 0 8px var(--teal);
         }
 
-        .rig-form { padding: 44px 38px; }
+        .rig-form {
+            padding: 44px 38px;
+        }
 
-        .title { font-weight: 800; font-size: 19px; margin-bottom: 6px; }
-        .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
+        .title {
+            font-weight: 800;
+            font-size: 20px;
+            margin-bottom: 6px;
+        }
 
-        .form-label { color: var(--muted); font-size: 12.5px; font-weight: 700; margin-bottom: 6px; display: block; }
+        .subtitle {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 26px;
+        }
+
+        .form-label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: block;
+        }
 
         .form-control {
-            background: var(--surface);
+            background: var(--panel);
             border: 1px solid var(--border);
             color: var(--text);
             border-radius: 9px;
             padding: 11px 14px;
-            font-size: 14px;
         }
 
         .form-control:focus {
-            background: var(--surface);
-            border-color: var(--primary);
+            background: var(--panel);
+            border-color: var(--amber);
             color: var(--text);
-            box-shadow: 0 0 0 .18rem var(--primary-soft);
+            box-shadow: 0 0 0 .2rem rgba(240,169,59,.15);
             outline: none;
         }
 
-        .form-control::placeholder { color: #A6ADBB; }
+        .form-control::placeholder { color: #4A5876; }
 
         .btn-primary {
-            background: var(--primary);
+            background: var(--amber);
             border: none;
-            color: #fff;
+            color: #1A1204;
             font-weight: 700;
             border-radius: 9px;
             padding: 12px;
             width: 100%;
-            transition: .15s;
+            transition: .2s;
         }
-        .btn-primary:hover { background: #3453BE; }
+
+        .btn-primary:hover { background: #ffbb52; }
 
         .alert-danger {
-            background: var(--danger-soft);
-            border: 1px solid #F5CACA;
-            color: #A33333;
+            background: rgba(229,72,77,.1);
+            border: 1px solid rgba(229,72,77,.4);
+            color: #ff9a9d;
             border-radius: 9px;
             font-size: 13px;
             padding: 10px 14px;
@@ -141,8 +187,7 @@
 
         @media (max-width: 760px) {
             .rig { grid-template-columns: 1fr; }
-            .rig-side { border-inline-end: none; border-bottom: 1px solid var(--border); padding: 32px 26px; }
-            .rig-form { padding: 32px 26px; }
+            .rig-side { border-inline-end: none; border-bottom: 1px solid var(--border); }
         }
     </style>
 </head>
@@ -166,7 +211,7 @@
     <div class="rig-form">
 
         <div class="title">ورود به سیستم</div>
-        <div class="subtitle">برای دسترسی به سامانه وارد شوید</div>
+        <div class="subtitle">برای دسترسی به کنسول عملیات، وارد شوید</div>
 
         @if ($errors->any())
             <div class="alert-danger">

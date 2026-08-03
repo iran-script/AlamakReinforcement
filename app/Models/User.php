@@ -28,7 +28,9 @@ class User extends Authenticatable
         'password',
         'username',
         'zone_id',
-        'role_id'
+        'role_id',
+        'group_user_id',
+        'contract_id'
     ];
 
     /**
@@ -63,7 +65,7 @@ class User extends Authenticatable
     {
         return $this->role === 'superadmin';
     }
-    
+
 
 
     public function hasPermission($permission)
@@ -89,5 +91,26 @@ class User extends Authenticatable
             'approved_at',
             'order'
         ])->withTimestamps();
+    }
+    public function groupUser()
+    {
+        return $this->belongsTo(GroupUser::class, 'group_user_id');
+    }
+
+    public function operations()
+    {
+        return $this->hasMany(Operation::class);
+    }
+
+    // app/Models/User.php
+    // app/Models/User.php
+    public function workflowInbox()
+    {
+        return $this->hasMany(WorkflowTransfer::class, 'user_id_to')->whereNull('receive_date');
+    }
+
+    public function contract()
+    {
+        return $this->belongsTo(Contract::class);
     }
 }

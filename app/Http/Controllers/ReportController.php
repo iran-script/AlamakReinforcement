@@ -9,6 +9,10 @@ use App\Models\OperationCategory;
 use App\Services\ReportService;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\ReportExport;
+use App\Models\Contract;
+use App\Models\Zone;
+
+
 
 
 class ReportController extends Controller
@@ -24,23 +28,29 @@ class ReportController extends Controller
 
 
 
-    public function index()
+    public function index(Request $request)
     {
+        $user = $request->user();
+
+        $zones = $user->hasRole('superadmin')
+            ? Zone::orderBy('name')->get()
+            : Zone::where('id', $user->zone_id)->get();
+
         return view('report.index', [
 
-            'users' => User::orderBy('name')
-                ->get(),
+            'users' => User::orderBy('name')->get(),
 
+            'materials' => Material::orderBy('title')->get(),
 
-            'materials' => Material::orderBy('title')
-                ->get(),
+            'operations' => OperationCategory::orderBy('title')->get(),
 
+            'contracts' => Contract::orderBy('contractor_name')->get(),
 
-            'operations' => OperationCategory::orderBy('title')
-                ->get(),
+            'zones' => $zones,
 
         ]);
     }
+
 
 
 
@@ -53,7 +63,6 @@ class ReportController extends Controller
 
 
         return response()->json($data);
-
     }
 
 
@@ -69,7 +78,6 @@ class ReportController extends Controller
             'Report.xlsx'
 
         );
-
     }
 
 
@@ -85,7 +93,5 @@ class ReportController extends Controller
             'report.pdf',
             compact('data')
         );
-
     }
-
 }

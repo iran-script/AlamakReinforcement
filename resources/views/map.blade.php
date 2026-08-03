@@ -3,7 +3,7 @@
 @section('title', 'نقشه GIS')
 
 @section('content')
-
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link href="{{ url('css/ol.css') }}" rel="stylesheet">
     <script src="{{ asset('js/ol.js') }}"></script>
 
@@ -187,9 +187,9 @@
             <span class="toolbar-label"><i class="bi bi-sliders"></i> وضعیت:</span>
             <select id="statusFilter" onchange="applyStatusFilter()">
                 <option value="all">همه</option>
-                <option value="pending">تعمیر شده</option>
-                <option value="default">تعمیر نشده</option>
-                <option value="success"> تایید شده</option>
+                <option value="flagRiser"> نشانه گذاری شده</option>
+                <option value="submitOperation">تعمیر شده</option>
+                <option value="resolveLead"> تایید شده بازرسی فنی</option>
                 <option value="error"> رد شده</option>
             </select>
 
@@ -209,6 +209,9 @@
 
             <div class="legend">
                 <span><i class="dot dot-done"></i> تعمیر شده</span>
+                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
+                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
+                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
                 <span><i class="dot dot-pending"></i> تعمیر نشده</span>
             </div>
 
@@ -251,9 +254,10 @@
 
             const statusColors = {
                 default: '#5c6161',
-                pending: '#f1c40f', // زرد
-                success: '#2ecc71', // سبز
-                error: '#e74c3c' // قرمز
+                flagRiser: '#f1c40f', // زرد
+                submitOperation: '#2ecc71', // سبز
+                resolveLead: '#e74c3c',
+                error: '#e74721'
             };
 
             if (!styleCache[key]) {
@@ -339,18 +343,44 @@
 
             const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
 
+            const statusLabels = {
+                default: 'پیش‌فرض',
+                flagRiser: '🚩 علامت‌گذاری شده',
+                submitOperation: '📤 ثبت عمیرات ',
+                resolveLead: '⏳ در انتظار نشت یابی',
+                approved: '✅ تایید شده',
+                rejected: '❌ رد شده'
+            };
+
+            const status = feature.get('status');
+
+
+
             if (feature) {
                 document.getElementById('info').innerHTML = `
-            <b>کد:</b><br>
-            <span class="plate">${feature.get('code')}</span><br><br>
-            <b>وضعیت:</b> ${feature.get('status')}<br><br>
+                    <b>کد:</b><br>
+                    <span class="plate">${feature.get('code')}</span><br><br>
 
-            <button class="btn btn-primary btn-sm w-100"
-                    onclick="openRiserDetails(${feature.get('id')})">
-                <i class="bi bi-eye"></i>
-                مشاهده اطلاعات کامل
-            </button>
-        `;
+                    <b>وضعیت:</b> ${statusLabels[status] || status}<br><br>
+
+                    ${
+                        feature.get('status') === 'default'
+                        ? `
+                                                    <button class="btn btn-warning btn-sm w-100 mb-2"
+                                                            onclick="bookmarkRiser(${feature.get('id')})">
+                                                        <i class="bi bi-bookmark"></i>
+                                                        افزودن به نشان‌شده‌ها
+                                                    </button>
+                                                `
+                        : ''
+                    }
+
+                    <button class="btn btn-primary btn-sm w-100"
+                            onclick="openRiserDetails(${feature.get('id')})">
+                        <i class="bi bi-eye"></i>
+                        مشاهده اطلاعات کامل
+                    </button>
+                `;
             }
         });
 
@@ -362,6 +392,41 @@
 
             window.location.href = riserShowRoute.replace('__ID__', id);
         }
+
+        async function bookmarkRiser(id) {
+            const riserBookmarkRoute = "{{ route('bookmark', '__ID__') }}";
+
+            if (!id) {
+                alert('شناسه علمک پیدا نشد.');
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    riserBookmarkRoute.replace('__ID__', id), {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+
+                if (response.status==200) {
+                    alert('علمک با موفقیت نشان شد.')
+
+                    // در صورت نیاز متن وضعیت یا دکمه را هم آپدیت کن
+                    // location.reload();
+                } else {
+                    alert('خطا در ثبت');
+                }
+
+            } catch (e) {
+                console.error(e);
+                alert('خطا در ارتباط با سرور');
+            }
+        }
+
 
         /* SEARCH */
         function applyFilter() {

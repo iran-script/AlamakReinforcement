@@ -15,12 +15,14 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TileController;
 use App\Http\Controllers\RiserController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\GroupUserController;
 use App\Http\Controllers\ZoneController;
 use App\Http\Controllers\OperationCategoryController;
 use App\Http\Controllers\MaterialCategoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\MbtilesController;
+use App\Http\Controllers\ContractController;
 
 
 /*
@@ -42,13 +44,7 @@ Route::get('/login', [AuthController::class, 'showLogin'])
 
 Route::post('/login', [AuthController::class, 'login'])
     ->name('login.post');
-Route::get('/report/excel', [ReportController::class,'excel'])
-    ->name('report.excel');
-    Route::get(
-    '/report/data',
-    [ReportController::class,'data']
-)
-->name('report.data');
+
 
 // Logout
 Route::post('/logout', function (Request $request) {
@@ -63,7 +59,10 @@ Route::post('/logout', function (Request $request) {
 
 
 Route::get('/tiles/{z}/{x}/{y}.png', [MbtilesController::class,'tile']);
-
+Route::get('/risers/table', [RiserController::class, 'table'])->name('riser.table');
+Route::get('/risers/data', [RiserController::class, 'data'])->name('riser.data');
+Route::post('/riser/{riser}/bookmark', [RiserController::class, 'bookmark'])
+    ->name('bookmark');
 // Hash test
 Route::get('/hash', function () {
     return Hash::make('123');
@@ -103,6 +102,8 @@ Route::resource(
     'operation-category',
     OperationCategoryController::class
 );
+
+Route::resource('contract', ContractController::class);
 
 
 Route::resource(
@@ -340,13 +341,21 @@ Route::middleware('auth')->group(function () {
     )->name('reports.index');
 
 
-    Route::get(
-        '/reports/export-excel',
-        [
-            ReportController::class,
-            'exportExcel'
-        ]
-    )->name('reports.export-excel');
+     
+
+    Route::get('/reports/data',
+        [ReportController::class,'data']
+    )->name('report.data');
+
+
+    Route::get('/reports/excel',
+        [ReportController::class,'excel']
+    )->name('report.excel');
+
+
+    Route::get('/reports/pdf',
+        [ReportController::class,'pdf']
+    )->name('report.pdf');
 });
 
 
@@ -370,4 +379,17 @@ Route::middleware([
     )->except([
         'show'
     ]);
+
+    
+});
+
+Route::middleware([
+    'auth',
+    'permission:groupuser.view'
+])->group(function () {
+
+
+    Route::resource('groupusers', GroupUserController::class);
+
+    
 });

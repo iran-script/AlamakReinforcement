@@ -30,4 +30,16 @@ class Riser extends Model
             )
         ", [$user->zone_id]);
     }
+
+    // app/Models/Riser.php
+    // app/Models/Riser.php  — این متدها را اضافه کن
+    public function workflowTransfers()
+    {
+        return $this->hasMany(WorkflowTransfer::class);
+    }
+
+    public function latestWorkflowTransfer()
+    {
+        return $this->hasOne(WorkflowTransfer::class)->latestOfMany('send_date');
+    }
 }

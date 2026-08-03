@@ -6,8 +6,10 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v9.2.4/ol.css">
-    <script src="https://cdn.jsdelivr.net/npm/ol@v9.2.4/dist/ol.js"></script>
+    <link href="{{ url('css/ol.css') }}" rel="stylesheet">
+
+    <script src="{{ asset('js/ol.js') }}"></script>
+
 
     <style>
         .zone-page {
@@ -187,8 +189,7 @@
                     return new ol.style.Style({
                         fill: new ol.style.Fill({
                             color: isSelected ?
-                                'rgba(62, 99, 221, 0.30)' :
-                                'rgba(18, 148, 111, 0.20)'
+                                'rgba(62, 99, 221, 0.30)' : 'rgba(18, 148, 111, 0.20)'
                         }),
                         stroke: new ol.style.Stroke({
                             color: isSelected ? '#3E63DD' : '#12946F',
@@ -281,7 +282,16 @@
                                 });
                             }
                         } else {
+
                             list.innerHTML = '<div class="text-muted">هنوز زونی ثبت نشده است.</div>';
+
+                            // نمایش استان مرکزی
+                            map.getView().setCenter(
+                                ol.proj.fromLonLat([49.6892, 34.0954]) // اراک
+                            );
+
+                            map.getView().setZoom(9);
+
                         }
                     })
                     .catch(error => {
@@ -380,13 +390,11 @@
 
             function startDraw() {
                 clearSelection();
+
+                map.un('singleclick', selectClickHandler);
+
                 removeDrawInteraction();
                 removeModifyInteraction();
-
-                // اگر Draw قبلی وجود دارد حذف شود
-                if (drawInteraction) {
-                    map.removeInteraction(drawInteraction);
-                }
 
                 drawInteraction = new ol.interaction.Draw({
                     source: zoneSource,
@@ -395,7 +403,9 @@
 
                 map.addInteraction(drawInteraction);
 
+
                 drawInteraction.on('drawend', function(event) {
+
                     selectedFeature = event.feature;
 
                     selectedFeature.set('isNew', true);
@@ -404,7 +414,10 @@
 
                     removeDrawInteraction();
 
+                    map.on('singleclick', selectClickHandler);
+
                     zoneLayer.changed();
+
                 });
             }
 
@@ -551,25 +564,36 @@
                     });
             }
 
-            map.on('singleclick', function(event) {
+            function selectClickHandler(event) {
+
                 let clickedFeature = null;
 
                 map.forEachFeatureAtPixel(
                     event.pixel,
                     function(feature, layer) {
+
                         if (layer === zoneLayer) {
+
                             clickedFeature = feature;
                             return true;
+
                         }
+
                     }, {
                         hitTolerance: 5
                     }
                 );
 
+
                 if (clickedFeature) {
+
                     selectZone(clickedFeature);
+
                 }
-            });
+            }
+
+
+            map.on('singleclick', selectClickHandler);
 
             document.getElementById('drawPolygonBtn').addEventListener('click', startDraw);
 

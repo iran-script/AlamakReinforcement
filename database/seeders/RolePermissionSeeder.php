@@ -32,6 +32,7 @@ class RolePermissionSeeder extends Seeder
             'riser.create',
             'riser.edit',
             'riser.delete',
+            'riser.table',
 
             'operation.view',
             'operation.create',

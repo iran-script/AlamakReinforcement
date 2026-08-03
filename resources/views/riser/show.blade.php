@@ -4,367 +4,721 @@
 
 @section('content')
 
+    <link href="{{ url('css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
+    <script src="{{ url('js/bootstrap.js') }}"></script>
     <link rel="stylesheet" href="{{ url('css/dropzone.css') }}">
-    <script src="{{  url('js/dropzone.js')  }}"></script>
+
+    <script src="{{ url('js/dropzone.js') }}"></script>
 
 
     <style>
-        .page-header {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 22px 24px;
-            margin-bottom: 20px;
-            position: relative;
-            overflow: hidden;
-            box-shadow: var(--shadow-sm);
+        body {
+            background: #f4f6f9;
         }
 
-        .page-header::before {
-            content: "";
-            position: absolute; inset-inline-start: 0; top: 0; bottom: 0;
-            width: 4px; background: var(--primary);
+        .page-header {
+
+            background: #fff;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+
+            box-shadow: 0 2px 10px rgba(0, 0, 0, .08);
         }
 
         .page-title {
-            font-size: 22px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 12px;
+
+            font-size: 28px;
+            font-weight: bold;
         }
 
-        .meta-line {
-            color: var(--text-muted);
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
+        .status-badge {
+
+            font-size: 15px;
         }
 
         .card-custom {
-            border: 1px solid var(--border);
-            border-radius: 16px;
+
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, .08);
             margin-bottom: 20px;
-            background: var(--surface);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .card-custom .card-header {
-            background: var(--surface-2);
-            border-bottom: 1px solid var(--border);
-            border-radius: 16px 16px 0 0 !important;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* ===== EVIDENCE VIEWER (gallery) ===== */
-        .evidence-frame {
-            position: relative;
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            background: var(--surface-2);
         }
 
         .main-image {
+
             width: 100%;
-            height: 400px;
+            height: 420px;
+
             object-fit: cover;
-            display: block;
-            cursor: zoom-in;
-        }
 
-        .evidence-corner {
-            position: absolute;
-            width: 20px; height: 20px;
-            border-color: rgba(62,99,221,.75);
-            border-style: solid;
-            border-width: 0;
-            z-index: 2;
-            pointer-events: none;
-        }
-        .evidence-corner.tl { top: 10px; inset-inline-start: 10px; border-top-width: 2px; border-inline-start-width: 2px; }
-        .evidence-corner.tr { top: 10px; inset-inline-end: 10px; border-top-width: 2px; border-inline-end-width: 2px; }
-        .evidence-corner.bl { bottom: 10px; inset-inline-start: 10px; border-bottom-width: 2px; border-inline-start-width: 2px; }
-        .evidence-corner.br { bottom: 10px; inset-inline-end: 10px; border-bottom-width: 2px; border-inline-end-width: 2px; }
+            border-radius: 12px;
 
-        .filmstrip {
-            display: flex;
-            gap: 10px;
-            margin-top: 14px;
-            flex-wrap: wrap;
+            cursor: pointer;
         }
 
         .thumb {
-            width: 84px;
-            height: 84px;
+
+            width: 90px;
+            height: 90px;
+
             object-fit: cover;
+
             border-radius: 8px;
+
             cursor: pointer;
-            border: 2px solid var(--border);
-            transition: .15s;
-            opacity: .8;
+
+            border: 3px solid transparent;
+
+            transition: .2s;
         }
 
-        .thumb:hover { opacity: 1; transform: translateY(-2px); }
-        .thumb.active { border-color: var(--primary); opacity: 1; box-shadow: 0 0 0 3px var(--primary-soft); }
+        .thumb:hover {
 
-        .empty-gallery {
-            padding: 40px;
-            text-align: center;
-            color: var(--text-faint);
-            font-size: 13px;
+            border-color: #0d6efd;
         }
 
-        /* ===== INFO SIDEBAR ===== */
-        .info-item { margin-bottom: 16px; }
+        .info-item {
+
+            margin-bottom: 15px;
+        }
+
         .info-label {
-            font-weight: 700;
-            color: var(--text-faint);
-            font-size: 11.5px;
-            letter-spacing: .02em;
-            margin-bottom: 3px;
-        }
-        .info-value { font-size: 14.5px; color: var(--text); }
 
-        .mini-map-placeholder {
-            height: 300px;
-            border-radius: 0 0 15px 15px;
+            font-weight: bold;
+            color: #6c757d;
+        }
+
+        .table-placeholder {
+
+            height: 250px;
+
             display: flex;
-            flex-direction: column;
+
+            align-items: center;
+
+            justify-content: center;
+
+            color: #999;
+
+            font-size: 18px;
+        }
+
+        :root {
+            --navy-950: #0B2033;
+            --navy-900: #0F2A43;
+            --navy-800: #16405C;
+            --blueprint: #2B5872;
+            --blueprint-soft: #3E6C86;
+            --paper: #EEF0EA;
+            --paper-dim: #E3E6DD;
+            --ink: #132433;
+            --muted: #5C7488;
+            --amber: #D98F2B;
+            --amber-dark: #B8721B;
+            --green: #3F7A5C;
+            --green-soft: #E4EFE8;
+            --radius: 10px;
+            --maxw: 1180px;
+        }
+
+        /* ===== SHOWCASE (signature element) ===== */
+        .showcase {
+            background: var(--navy-950);
+            color: #fff;
+        }
+
+        .showcase .section-head {
+            max-width: 640px;
+        }
+
+        .showcase .eyebrow {
+            color: var(--amber);
+        }
+
+        .showcase .section-head h2 {
+            color: #fff;
+        }
+
+        .showcase .section-head p {
+            color: #AEBCC7;
+        }
+
+        .showcase {
+            position: relative;
+        }
+
+        .showcase-glow {
+            position: absolute;
+            left: 50%;
+            top: 40%;
+            width: 640px;
+            height: 640px;
+            background: radial-gradient(circle, rgba(217, 143, 43, .16), transparent 68%);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            filter: blur(10px);
+        }
+
+        .report-card {
+            position: relative;
+            background: #fff;
+            color: var(--ink);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 30px 70px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .06);
+            transition: transform .4s ease;
+        }
+
+        .report-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .report-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            border-bottom: 1px dashed #D7DBD1;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .report-meta .m-item {
+            font-size: 12.5px;
+            color: var(--muted);
+        }
+
+        .report-meta .m-item b {
+            display: block;
+            color: var(--ink);
+            font-size: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            direction: ltr;
+            text-align: right;
+        }
+
+        .compare {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/8;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .compare .layer {
+            position: absolute;
+            inset: 0;
+        }
+
+        .compare .label {
+            position: absolute;
+            top: 14px;
+            font-size: 12px;
+            font-weight: 700;
+            background: rgba(11, 32, 51, .75);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: .05em;
+        }
+
+        .compare .label.before {
+            right: 14px;
+        }
+
+        .compare .label.after {
+            left: 14px;
+        }
+
+        .compare .after-layer {
+            clip-path: inset(0 50% 0 0);
+        }
+
+        .compare .divider {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 6px;
+            background: var(--amber);
+            right: 50%;
+            transform: translateX(50%);
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .compare .handle {
+            position: absolute;
+            top: 50%;
+            right: 50%;
+            transform: translate(50%, -50%);
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: var(--amber);
+            display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            color: var(--text-faint);
-            font-size: 13px;
-            background: var(--surface-2);
+            z-index: 6;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .3);
         }
-        .mini-map-placeholder i { font-size: 24px; color: var(--text-faint); }
 
-        #materialsContainer input[type="number"] { max-width: 130px; }
+        .compare input[type=range] {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
+            cursor: ew-resize;
+            z-index: 7;
+        }
 
-        .table-empty-note { color: var(--text-faint); font-size: 13px; }
+        .report-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            background: #F7F8F4;
+        }
 
-        @media (max-width: 575.98px) {
-            .main-image { height: 260px; }
+        .report-footer .verdict {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            color: var(--green);
+            font-size: 14.5px;
+        }
+
+        .report-footer .verdict::before {
+            content: "✓";
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--green);
+            color: #fff;
+            font-size: 12px;
+        }
+
+        .report-footer .note {
+            font-size: 13px;
+            color: var(--muted);
         }
     </style>
 
 
-    <div class="page-eyebrow">RISER DOSSIER / پرونده فنی علمک</div>
 
-    <!-- HEADER -->
-    <div class="page-header">
+    <div class="container-fluid py-4">
 
-        <div class="row align-items-center">
+        <!-- HEADER -->
+
+        <div class="page-header">
+
+            <div class="row align-items-center">
+
+                <div class="col-lg-8">
+
+                    <h2 class="page-title mb-3">
+
+                        <i class="bi bi-geo-alt-fill text-danger"></i>
+
+                        علمک شماره
+
+                        <span id="riserCode">
+                            ---
+                        </span>
+
+                    </h2>
+
+                    <div class="d-flex flex-wrap gap-3">
+
+                        <span class="badge bg-success status-badge" id="riserStatus">
+
+                            تعمیر شده
+
+                        </span>
+
+                        <span>
+
+                            <i class="bi bi-calendar-event"></i>
+
+                            آخرین بروزرسانی:
+
+                            <span id="updatedAt">
+
+                                ---
+
+                            </span>
+
+                        </span>
+
+                    </div>
+
+                </div>
+
+                <div class="col-lg-4 text-end">
+
+                    <a href="{{ url()->previous() }}" class="btn btn-secondary">
+
+                        <i class="bi bi-arrow-right"></i>
+
+                        بازگشت به نقشه
+
+                    </a>
+
+                    <button class="btn btn-primary">
+
+                        <i class="bi bi-pencil"></i>
+
+                        ویرایش
+
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+
+        <div class="row">
+
+            <!-- LEFT -->
 
             <div class="col-lg-8">
+                {{-- <section id="showcase" class="showcase">
+                    <div class="wrap">
+                        
+                        <div class="showcase-glow"></div>
+                        <div class="report-card reveal">
+                            <div class="report-meta">
+                                <div class="m-item">کد علمک <b>OLK-3391-B</b></div>
+                                <div class="m-item">منطقه <b style="direction:rtl;font-family:'Vazirmatn'">شهرک صنعتی — بلوک
+                                        ۴</b></div>
+                                <div class="m-item">تاریخ تعمیر <b>1404/04/28</b></div>
+                                <div class="m-item">ناظر <b style="direction:rtl;font-family:'Vazirmatn'">مهندس رضایی</b>
+                                </div>
+                            </div>
 
-                <h2 class="page-title mb-0">
-                    <i class="bi bi-geo-alt-fill text-primary"></i>
-                    <span class="plate plate-lg" id="riserCode">---</span>
-                </h2>
+                            <div class="compare" id="compareWidget">
+                                <div class="layer before-layer">
+                                    <img width="100%" height="100%" id="mainImage" src="{{ url('img/alamak.jpg') }}" class="main-image">
+                                </div>
+                                <div class="layer after-layer">
+                                    <svg width="100%" height="100%" viewBox="0 0 800 400"
+                                        preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+                                        <rect width="800" height="400" fill="#EFE9DD" />
+                                        <rect x="0" y="330" width="800" height="70" fill="#D8CFBB" />
+                                        <rect x="360" y="90" width="80" height="250" fill="#E8B93A" stroke="#B8721B"
+                                            stroke-width="2" />
+                                        <rect x="345" y="70" width="110" height="30" fill="#D98F2B" stroke="#B8721B"
+                                            stroke-width="2" />
+                                        <circle cx="400" cy="200" r="3" fill="#8A6C1E" opacity="0.5" />
+                                        <path d="M330 340 q20 -10 40 0 t40 0 t40 0 t40 0" stroke="#3F7A5C"
+                                            stroke-width="2.5" fill="none" />
+                                    </svg>
+                                </div>
+                                <span class="label before">پیش از تعمیر</span>
+                                <span class="label after">پس از تعمیر</span>
+                                <div class="divider" id="divider"></div>
+                                <div class="handle" id="handle">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                        stroke="#0B2033" stroke-width="2.4">
+                                        <path d="M8 7l-5 5 5 5M16 7l5 5-5 5" />
+                                    </svg>
+                                </div>
+                                <input type="range" id="compareRange" min="0" max="100" value="50"
+                                    aria-label="مقایسه تصویر پیش و پس از تعمیر">
+                            </div>
 
-                <div class="d-flex flex-wrap gap-3 mt-3">
+                            <div class="report-footer">
+                                <span class="verdict">تأیید شد — تعویض رایزر و رنگ‌آمیزی استاندارد</span>
+                                <span class="note">مصالح مصرفی: لوله فولادی ۲″، رنگ ضدزنگ زرد، بست فلزی ×۲</span>
+                            </div>
+                        </div>
+                    </div>
+                </section> --}}
+                <!-- GALLERY -->
 
-                    <span class="status-pill status-done" id="riserStatus">
-                        تعمیر شده
-                    </span>
+                <div class="card card-custom">
 
-                    <span class="meta-line">
-                        <i class="bi bi-calendar-event"></i>
-                        آخرین بروزرسانی:
-                        <span id="updatedAt">---</span>
-                    </span>
+                    <div class="card-header bg-white">
 
-                </div>
+                        <h5 class="mb-0">
 
-            </div>
+                            <i class="bi bi-images"></i>
 
-            <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
+                            تصاویر علمک
 
-                <a href="{{ url()->previous() }}" class="btn btn-secondary">
-                    <i class="bi bi-arrow-right"></i>
-                    بازگشت به نقشه
-                </a>
+                        </h5>
 
-                <button class="btn btn-primary">
-                    <i class="bi bi-pencil"></i>
-                    ویرایش
-                </button>
+                    </div>
 
-            </div>
+                    <div class="card-body">
 
-        </div>
-
-    </div>
-
-
-
-    <div class="row">
-
-        <!-- LEFT -->
-        <div class="col-lg-8">
-
-            <!-- GALLERY -->
-            <div class="card-custom">
-
-                <div class="card-header">
-                    <i class="bi bi-images text-primary"></i>
-                    تصاویر علمک
-                </div>
-
-                <div class="card-body p-3">
-
-                    <div class="evidence-frame">
-                        <div class="evidence-corner tl"></div>
-                        <div class="evidence-corner tr"></div>
-                        <div class="evidence-corner bl"></div>
-                        <div class="evidence-corner br"></div>
                         <img id="mainImage" src="{{ url('img/alamak.jpg') }}" class="main-image">
-                    </div>
 
-                    <div class="filmstrip" id="thumbnailContainer">
+                        <div class="d-flex gap-2 mt-3 flex-wrap" id="thumbnailContainer">
 
-                        <img src="{{ url('img/alamak.jpg') }}" class="thumb active">
+                            <img src="{{ url('img/alamak.jpg') }}" class="thumb">
 
-                        <img src="{{ url('img/alamak.jpg') }}" class="thumb">
+                            <img src="{{ url('img/alamak.jpg') }}" class="thumb">
 
-                        <img src="{{ url('img/alamak.jpg') }}" class="thumb">
+                            <img src="{{ url('img/alamak.jpg') }}" class="thumb">
+
+                        </div>
 
                     </div>
 
                 </div>
 
-            </div>
 
 
+                <!-- OPERATIONS -->
 
-            <!-- OPERATIONS -->
-            <div class="card-custom">
+                <div class="card card-custom">
 
-                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <span>
-                        <i class="bi bi-tools text-primary"></i>
-                        عملیات انجام شده
-                    </span>
+                    <div class="card-header bg-white">
 
-                    @if (!auth()->user()->hasRole('supervisor'))
-                        <button class="btn btn-success btn-sm" onclick="openCreateOperation()">
-                            <i class="bi bi-plus-circle"></i>
-                            عملیات جدید
-                        </button>
-                    @endif
+                        <h5 class="mb-0">
+
+                            <i class="bi bi-tools"></i>
+
+                            عملیات انجام شده
+
+                        </h5>
+
+                    </div>
+
+                    <div class="card-body">
+                        {{-- @if (!auth()->user()->hasRole('supervisor')) --}}
+                            <div class="d-flex justify-content-end mb-3">
+                                <button class="btn btn-success" onclick="openCreateOperation()">
+                                    <i class="bi bi-plus-circle"></i>
+                                    عملیات جدید
+                                </button>
+                            </div>
+                        {{-- @endif --}}
+
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-hover align-middle" id="operationTable">
+
+                                <thead class="table-light">
+
+                                    <tr>
+
+                                        <th>#</th>
+
+                                        <th>تاریخ</th>
+
+                                        <th>نوع عملیات</th>
+
+                                        <th>پیمانکار</th>
+
+                                        <th>وضعیت</th>
+
+                                        <th>اقلام مصرفی</th>
+
+                                        <th>جزئیات</th>
+
+                                        {{-- @if (auth()->user()->hasRole('supervisor'))
+                                            <th>تایید یا رد</th>
+                                        @endif --}}
+
+                                    </tr>
+
+                                </thead>
+
+                                <tbody>
+
+                                </tbody>
+
+                            </table>
+                        </div>
+
+                    </div>
+
                 </div>
 
-                <div class="card-body p-3">
 
-                    <div class="table-responsive">
 
-                        <table class="table table-bordered table-hover align-middle mb-0" id="operationTable">
+                <!-- SUPERVISORS -->
 
-                            <thead>
+                <div class="card card-custom">
+
+                    <div class="card-header bg-white">
+
+                        <h5 class="mb-0">
+
+                            <i class="bi bi-person-check-fill"></i>
+
+                            تاییدکنندگان عملیات
+
+                        </h5>
+
+                    </div>
+
+                    <div class="card-body">
+
+                        <table class="table table-bordered table-striped" id="supervisorTable">
+
+                            <thead class="table-light">
+
                                 <tr>
+
                                     <th>#</th>
-                                    <th>تاریخ</th>
-                                    <th>نوع عملیات</th>
-                                    <th>پیمانکار</th>
-                                    <th>وضعیت</th>
-                                    <th>اقلام مصرفی</th>
-                                    <th>جزئیات</th>
-                                    @if (auth()->user()->hasRole('supervisor'))
-                                        <th>تایید یا رد</th>
-                                    @endif
-                                </tr>
-                            </thead>
 
-                            <tbody></tbody>
-
-                        </table>
-                    </div>
-
-                </div>
-
-            </div>
-
-
-
-            <!-- SUPERVISORS -->
-            <div class="card-custom">
-
-                <div class="card-header">
-                    <i class="bi bi-person-check-fill text-primary"></i>
-                    تاییدکنندگان عملیات
-                </div>
-
-                <div class="card-body p-3">
-
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped mb-0" id="supervisorTable">
-
-                            <thead>
-                                <tr>
-                                    <th>#</th>
                                     <th>عملیات</th>
+
                                     <th>ناظر</th>
+
                                     <th>سمت</th>
+
                                     <th>تاریخ تایید</th>
+
                                     <th>نتیجه</th>
+
                                 </tr>
+
                             </thead>
 
-                            <tbody></tbody>
+                            <tbody>
+
+                            </tbody>
 
                         </table>
+
                     </div>
 
                 </div>
 
-            </div>
+                <!-- SUPERVISORS -->
 
-        </div>
+                <div class="card card-custom">
 
+                    <div class="card-header bg-white">
 
+                        <h5 class="mb-0">
 
-        <!-- RIGHT -->
-        <div class="col-lg-4">
+                            <i class="bi bi-person-check-fill"></i>
 
-            <div class="card-custom">
+                            گردش کار
+                        </h5>
 
-                <div class="card-header">
-                    <i class="bi bi-info-circle-fill text-primary"></i>
-                    مشخصات علمک
-                </div>
+                    </div>
 
-                <div class="card-body p-3">
+                    <div class="card-body">
 
-                    <div class="info-item">
-                        <div class="info-label">کد علمک</div>
-                        <div class="info-value" id="infoCode">-</div>
+                        <table class="table table-bordered table-striped" id="workflowTable">
+
+                            <thead class="table-light">
+
+                                <tr>
+
+                                    <th>#</th>
+
+                                    <th>موضوع</th>
+
+                                    <th>فرستنده</th>
+
+                                    <th>گیرنده</th>
+
+                                    <th>تاریخ ارسال</th>
+
+                                    <th>نتیجه</th>
+
+                                </tr>
+
+                            </thead>
+
+                            <tbody>
+
+                            </tbody>
+
+                        </table>
+
                     </div>
 
                 </div>
 
+                
+
             </div>
 
 
 
-            <div class="card-custom">
+            <!-- RIGHT -->
 
-                <div class="card-header">
-                    <i class="bi bi-geo-alt text-primary"></i>
-                    موقعیت
+            <div class="col-lg-4">
+
+                <div class="card card-custom">
+
+                    <div class="card-header bg-white">
+
+                        <h5 class="mb-0">
+
+                            <i class="bi bi-info-circle-fill"></i>
+
+                            مشخصات علمک
+
+                        </h5>
+
+                    </div>
+
+                    <div class="card-body">
+
+                        <div class="info-item">
+
+                            <div class="info-label">
+
+                                کد علمک
+
+                            </div>
+
+                            <div id="infoCode">
+
+                                -
+
+                            </div>
+
+                        </div>
+
+
+
+                    </div>
+
                 </div>
 
-                <div class="card-body p-0">
 
-                    <div id="miniMap" class="mini-map-placeholder">
-                        <i class="bi bi-pin-map"></i>
-                        پیش‌نمایش موقعیت روی نقشه
+
+                <div class="card card-custom">
+
+                    <div class="card-header bg-white">
+
+                        <h5>
+
+                            <i class="bi bi-geo-alt"></i>
+
+                            موقعیت
+
+                        </h5>
+
+                    </div>
+
+                    <div class="card-body p-0">
+
+                        <div id="miniMap" style="height:320px;background:#ddd;border-radius:0 0 15px 15px;">
+
+                        </div>
+
                     </div>
 
                 </div>
@@ -388,9 +742,9 @@
 
                     <div class="modal-header">
                         <h5 class="modal-title">
-                            <i class="bi bi-plus-circle text-primary"></i>
                             ثبت عملیات جدید
                         </h5>
+
                     </div>
 
                     <div class="modal-body">
@@ -404,8 +758,10 @@
                                 </select>
                             </div>
 
+
                             <div class="col-md-6">
                                 <label class="form-label">وضعیت</label>
+
                                 <select class="form-select" name="status">
                                     <option value="درحال انجام">درحال انجام</option>
                                     <option value="انجام شده">انجام شده</option>
@@ -415,6 +771,7 @@
 
                             <div class="col-md-6">
                                 <label class="form-label">اولویت</label>
+
                                 <select class="form-select" name="priority">
                                     <option value="کم">کم</option>
                                     <option value="متوسط">متوسط</option>
@@ -424,30 +781,33 @@
                             </div>
 
                             <div class="col-12">
-                                <label class="form-label">متریال مصرفی</label>
 
-                                <div class="table-responsive">
-                                    <table class="table table-bordered table-hover align-middle mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th>متریال</th>
-                                                <th width="120">واحد</th>
-                                                <th width="150">تعداد</th>
-                                            </tr>
-                                        </thead>
+                                <label class="form-label">
+                                    متریال مصرفی
+                                </label>
 
-                                        <tbody id="materialsContainer"></tbody>
-                                    </table>
-                                </div>
+                                <table class="table table-bordered table-hover align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>متریال</th>
+                                            <th width="120">واحد</th>
+                                            <th width="150">تعداد</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody id="materialsContainer">
+
+                                    </tbody>
+
+                                </table>
 
                             </div>
-
                             <div class="col-md-12">
                                 <label class="form-label">توضیحات</label>
+
                                 <textarea class="form-control" rows="4" name="description"></textarea>
                             </div>
-
-                            <div class="mb-3 col-12">
+                            <div class="mb-3">
                                 <label class="form-label">عکس‌های عملیات</label>
                                 <div id="operationDropzone" class="dropzone"></div>
                             </div>
@@ -519,7 +879,7 @@
 
                     console.log(error);
 
-                    alert(error?.message || "خطا در ثبت عملیات. لطفاً دوباره تلاش کنید.");
+
 
                 }
 
@@ -578,8 +938,9 @@
                 <div class="modal-header">
 
                     <h5 class="modal-title">
-                        <i class="bi bi-clipboard-data text-primary"></i>
+
                         جزئیات عملیات
+
                     </h5>
 
                     <button class="btn-close" data-bs-dismiss="modal"></button>
@@ -600,7 +961,35 @@
 
     </div>
 
+    <script>
+        // Before/after compare slider
+        const range = document.getElementById('compareRange');
+        const afterLayer = document.querySelector('.after-layer');
+        const divider = document.getElementById('divider');
+        const handle = document.getElementById('handle');
 
+        function updateCompare(val) {
+            afterLayer.style.clipPath = `inset(0 ${100-val}% 0 0)`;
+            divider.style.right = val + '%';
+            handle.style.right = val + '%';
+        }
+        range.addEventListener('input', e => updateCompare(e.target.value));
+        updateCompare(50);
+
+        // Reveal on scroll
+        const revealEls = document.querySelectorAll('.reveal');
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach(en => {
+                if (en.isIntersecting) {
+                    en.target.classList.add('in');
+                    io.unobserve(en.target);
+                }
+            });
+        }, {
+            threshold: 0.15
+        });
+        revealEls.forEach(el => io.observe(el));
+    </script>
 
     <script>
         const riserId = {{ $id ?? request()->route('id') }};
@@ -627,7 +1016,7 @@
                 loadInfo();
 
                 loadGallery();
-
+                loadWorkflow();
                 loadOperations();
 
                 loadSupervisors();
@@ -649,25 +1038,9 @@
 
             document.getElementById('infoCode').innerHTML = riserData.code;
 
-            const statusEl = document.getElementById('riserStatus');
-            const status = riserData.status || 'نامشخص';
 
-            statusEl.innerHTML = status;
-            statusEl.className = 'status-pill ' + statusPillForStatus(status);
+            document.getElementById('riserStatus').innerHTML = riserData.status || 'نامشخص';
 
-        }
-
-        function statusPillForStatus(status) {
-
-            if (['انجام شده', 'تعمیر شده', 'تایید'].includes(status)) {
-                return 'status-done';
-            }
-
-            if (['رد شده', 'رد', 'متوقف شده'].includes(status)) {
-                return 'status-reject';
-            }
-
-            return 'status-pending';
         }
 
         async function loadOperationTypes() {
@@ -731,16 +1104,24 @@
             const photos = riserData.photos ?? [];
 
             if (photos.length === 0) {
-                document.getElementById('thumbnailContainer').innerHTML =
-                    '<div class="empty-gallery">عکسی وجود ندارد</div>';
+                document.getElementById('thumbnailContainer').innerHTML = "";
                 return;
             }
 
             document.getElementById('mainImage').src = photos[0].url;
 
+            if (riserData.photos.length === 0) {
+                document.getElementById("gallery").innerHTML = "عکسی وجود ندارد";
+                return;
+            }
+
+
+
+            document.getElementById('mainImage').src = riserData.photos[0].url;
+
             let html = '';
 
-            photos.forEach((photo, index) => {
+            riserData.photos.forEach(photo => {
 
                 html += `
 
@@ -748,9 +1129,9 @@
 
                 src="${photo.url}"
 
-                class="thumb ${index === 0 ? 'active' : ''}"
+                class="thumb"
 
-                onclick="changeImage('${photo.url}', this)"
+                onclick="changeImage('${photo.url}')"
 
             >
 
@@ -764,15 +1145,92 @@
 
 
 
-        function changeImage(url, el) {
+        function changeImage(url) {
 
             document.getElementById('mainImage').src = url;
 
-            document.querySelectorAll('#thumbnailContainer .thumb').forEach(t => t.classList.remove('active'));
+        }
 
-            if (el) {
-                el.classList.add('active');
+        function loadWorkflow() {
+
+            let html = '';
+
+            if (!riserData.workflow || riserData.workflow.length === 0) {
+
+                html = `
+            <tr>
+                <td colspan="7" class="text-center">
+                    تاریخچه‌ای وجود ندارد
+                </td>
+            </tr>
+        `;
+
+            } else {
+
+                riserData.workflow.forEach((row, index) => {
+
+                    html += `
+
+            <tr>
+
+                <td>${index + 1}</td>
+
+                <td>
+                    ${row.title}
+                </td>
+
+                <td>
+                    ${row.from_user ?? '-'}
+                </td>
+
+                <td>
+                    ${row.to_user ?? '-'}
+                </td>
+
+                <td>
+                    ${row.send_date ?? '-'}
+                </td>
+
+                <td>
+                    ${
+                        row.receive_date
+                        ? row.receive_date
+                        : '<span class="badge bg-warning">در انتظار</span>'
+                    }
+                </td>
+
+                <td>
+                    ${
+                        row.comment
+                        ? row.comment
+                        : '-'
+                    }
+                </td>
+
+                <td>
+                    ${
+                        row.status === 'دریافت شده'
+                        ?
+                        `<span class="badge bg-success">
+                                ${row.status}
+                             </span>`
+                        :
+                        `<span class="badge bg-warning">
+                                ${row.status}
+                             </span>`
+                    }
+                </td>
+
+            </tr>
+
+            `;
+
+                });
+
             }
+
+
+            document.querySelector("#workflowTable tbody").innerHTML = html;
 
         }
 
@@ -780,12 +1238,6 @@
 
         function loadOperations() {
             let html = '';
-
-            if (!riserData.operations || riserData.operations.length === 0) {
-                document.querySelector("#operationTable tbody").innerHTML =
-                    `<tr><td colspan="8" class="text-center table-empty-note py-4">هنوز عملیاتی ثبت نشده است</td></tr>`;
-                return;
-            }
 
             riserData.operations.forEach((row, index) => {
 
@@ -803,7 +1255,7 @@
 
             <td>
 
-                <span class="status-pill ${statusPillForStatus(row.status)}">
+                <span class=" bg-gray">
 
                     ${row.status}
 
@@ -815,11 +1267,11 @@
                 ${
                     row.materials.length
                         ? row.materials.map(material => `
-                                <div>
-                                    ${material.title}
-                                    (${material.pivot.qty} ${material.unit})
-                                </div>
-                            `).join('')
+                                                            <div>
+                                                                ${material.title}
+                                                                (${material.pivot.qty} ${material.unit})
+                                                            </div>
+                                                        `).join('')
                         : '-'
                 }
             </td>
@@ -839,35 +1291,7 @@
                 </button>
 
             </td>
-            @if (auth()->user()->hasRole('supervisor'))
-            <td>
-
-               <button
-
-                    class="btn btn-success btn-sm"
-
-                    onclick="verifyOperation(${row.id},'success')"
-
-                >
-
-                   تایید
-
-                </button>
-
-                 <button
-
-                    class="btn btn-danger btn-sm"
-
-                    onclick="verifyOperation(${row.id},'reject')"
-
-                >
-
-                   رد
-
-                </button>
-
-            </td>
-            @endif
+           
 
         </tr>
 
@@ -884,12 +1308,6 @@
         function loadSupervisors() {
 
             let html = '';
-
-            if (!riserData.supervisors || riserData.supervisors.length === 0) {
-                document.querySelector("#supervisorTable tbody").innerHTML =
-                    `<tr><td colspan="6" class="text-center table-empty-note py-4">هنوز تاییدی ثبت نشده است</td></tr>`;
-                return;
-            }
 
             riserData.supervisors.forEach((row, index) => {
 
@@ -909,7 +1327,7 @@
 
             <td>
 
-                <span class="status-pill ${statusPillForStatus(row.result)}">
+                <span class="badge bg-success">
 
                     ${row.result}
 
@@ -938,7 +1356,7 @@
 
             document.getElementById("operationDetail").innerHTML = `
 
-        <table class="table table-bordered mb-0">
+        <table class="table table-bordered">
 
             <tr>
 
@@ -1014,7 +1432,7 @@
 
                 <td>
 
-                    <span class="status-pill ${statusPillForStatus(item.status)}">${item.status}</span>
+                    ${item.status}
 
                 </td>
 
@@ -1041,43 +1459,6 @@
     `;
 
             operationModal.show();
-
-        }
-
-        async function verifyOperation(operationId, result) {
-
-            if (!confirm(result === 'success' ? 'آیا از تایید این عملیات مطمئن هستید؟' : 'آیا از رد این عملیات مطمئن هستید؟')) {
-                return;
-            }
-
-            try {
-
-                const response = await fetch(`/operations/${operationId}/verify`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ result })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw data;
-                }
-
-                alert(result === 'success' ? 'عملیات تایید شد.' : 'عملیات رد شد.');
-
-                await loadRiser();
-
-            } catch (error) {
-
-                console.log(error);
-                alert(error?.message || 'خطا در ثبت نتیجه بررسی.');
-
-            }
 
         }
     </script>

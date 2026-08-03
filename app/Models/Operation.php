@@ -14,9 +14,10 @@ class Operation extends Model
 
     protected $fillable = [
         'riser_id',
+        'contract_id',
         'operation_category_id',
         'user_id',
-        'contractor_id',
+        'contract_id',
         'operation_date',
         'start_time',
         'end_time',
@@ -25,6 +26,12 @@ class Operation extends Model
         'total_cost',
         'description',
     ];
+
+
+    public function contract()
+    {
+        return $this->belongsTo(Contract::class);
+    }
 
     public function supervisors()
     {
@@ -55,13 +62,22 @@ class Operation extends Model
             Material::class,
             'operation_materials'
         )->withPivot([
-            'qty'
-
+            'qty',
+            'price',
+            'total',
+            'description'
         ])->withTimestamps();
     }
 
     public function riser()
     {
         return $this->belongsTo(Riser::class);
+    }
+
+    // app/Models/Operation.php
+    // app/Models/Operation.php
+    public function workflowTransfers()
+    {
+        return $this->hasMany(WorkflowTransfer::class);
     }
 }
