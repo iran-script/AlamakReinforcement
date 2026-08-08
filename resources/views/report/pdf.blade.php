@@ -46,6 +46,7 @@
         font-size: 9.5px;
         color: #98A1B3;
         padding-bottom: 6px;
+        text-align: center;
     }
     .running-header .r-right { float: right; }
     .running-header .r-left { float: left; }
@@ -77,6 +78,7 @@
         background: #0F2A43;
         border-radius: 12px;
         overflow: hidden;
+        text-align: center;
     }
 
     .cover .deco-circle {
@@ -98,7 +100,7 @@
     .cover-inner { position: relative; }
 
     .cover .eyebrow {
-        font-size: 10px;
+        font-size: 25px;
         font-weight: bold;
         color: #E8963C;
         letter-spacing: .5px;
@@ -356,7 +358,7 @@
             <div class="eyebrow">شرکت گاز استان مرکزی</div>
             <div class="company-line">پیمان مقاوم‌سازی علمک‌های گاز</div>
 
-            <h1>گزارش عملیات سیستم تعمیرات</h1>
+            <h1>گزارش  سیستم </h1>
 
             <div class="generated">
                 تاریخ تولید گزارش: {{ now()->format('Y/m/d') }} — ساعت {{ now()->format('H:i') }}

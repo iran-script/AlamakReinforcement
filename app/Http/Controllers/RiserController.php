@@ -91,36 +91,6 @@ class RiserController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | تصاویر
-        |--------------------------------------------------------------------------
-        */
-
-        // $photos=DB::table('riser_photo')
-
-        //     ->where('riser_id',$id)
-
-        //     ->orderBy('id')
-
-        //     ->get()
-
-        //     ->map(function($item){
-
-        //         return [
-
-        //             'id'=>$item->id,
-
-        //             'url'=>asset('storage/'.$item->path),
-
-        //             'title'=>$item->title
-
-        //         ];
-
-        //     });
-
-
-
-        /*
-        |--------------------------------------------------------------------------
         | عملیات
         |--------------------------------------------------------------------------
         */
@@ -128,6 +98,7 @@ class RiserController extends Controller
         $operations = Operation::with('operationMaterial')
             ->with('operationCategory')
             ->with('user')
+            ->with('images')
             ->where('riser_id', $id)
             ->get()
             ->map(function ($item) {
@@ -139,9 +110,14 @@ class RiserController extends Controller
                     'status' => $item->status,
                     'description' => $item->description,
                     'materials' => $item->operationMaterial,
+                    'photos' => $item->images->map(function ($photo) {
+                        return [
+                            'id' => $photo->id,
+                            'url' => asset('storage/' . $photo->path),
+                        ];
+                    }),
                 ];
             });
-
 
 
         /*
@@ -225,7 +201,6 @@ class RiserController extends Controller
 
             // 'lng'=>$riser->lng,
 
-            // 'photos'=>$photos,
 
             'operations' => $operations,
 

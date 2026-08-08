@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="{{ url('css/dropzone.css') }}">
 
     <script src="{{ url('js/dropzone.js') }}"></script>
+    <script>
+        Dropzone.autoDiscover = false;
+    </script>
 
 
     <style>
@@ -499,13 +502,19 @@
 
                     <div class="card-body">
                         {{-- @if (!auth()->user()->hasRole('supervisor')) --}}
-                            <div class="d-flex justify-content-end mb-3">
-                                <button class="btn btn-success" onclick="openCreateOperation()">
-                                    <i class="bi bi-plus-circle"></i>
-                                    عملیات جدید
-                                </button>
-                            </div>
+
                         {{-- @endif --}}
+
+                        <div class="d-flex justify-content-end mb-3 gap-2">
+                            <button class="btn btn-outline-primary" onclick="beforePhotoModal.show()">
+                                <i class="bi bi-camera"></i>
+                                ثبت عکس قبل از عملیات
+                            </button>
+                            <button class="btn btn-success" onclick="openCreateOperation()">
+                                <i class="bi bi-plus-circle"></i>
+                                عملیات جدید
+                            </button>
+                        </div>
 
                         <div class="table-responsive">
 
@@ -649,7 +658,7 @@
 
                 </div>
 
-                
+
 
             </div>
 
@@ -802,14 +811,30 @@
                                 </table>
 
                             </div>
+
+                            <div class="col-12">
+                                <label class="form-label">
+                                    <i class="bi bi-camera"></i>
+                                    عکس‌های قبل از عملیات (ثبت‌شده)
+                                </label>
+                                <div id="pendingBeforePhotos" class="d-flex flex-wrap gap-2 mb-1"></div>
+                                <div class="form-text">
+                                    این عکس‌ها خودکار به این عملیات وصل میشن. اگه هنوز نگرفتی، از دکمه «ثبت عکس قبل از
+                                    عملیات» بالای جدول استفاده کن.
+                                </div>
+                            </div>
+
                             <div class="col-md-12">
                                 <label class="form-label">توضیحات</label>
 
                                 <textarea class="form-control" rows="4" name="description"></textarea>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">عکس‌های عملیات</label>
-                                <div id="operationDropzone" class="dropzone"></div>
+                                <label class="form-label">
+                                    <i class="bi bi-camera-fill"></i>
+                                    عکس‌های بعد از تعمیر
+                                </label>
+                                <div id="operationDropzoneAfter" class="dropzone"></div>
                             </div>
 
                         </div>
@@ -836,6 +861,45 @@
         </div>
     </div>
 
+
+
+    <div class="modal fade" id="beforePhotoModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">ثبت عکس قبل از عملیات</h5>
+                    <button class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">
+                        این عکس‌ها همین الان ذخیره میشن و خودکار به اولین عملیاتی که برای این علمک ثبت کنی وصل میشن.
+                    </p>
+                    <div id="beforePhotoDropzone" class="dropzone"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const beforePhotoModal = new bootstrap.Modal(document.getElementById('beforePhotoModal'));
+
+        const dzStandaloneBefore = new Dropzone("#beforePhotoDropzone", {
+            url: "{{ url('riser/photos/upload') }}",
+            paramName: "photo",
+            maxFilesize: 10,
+            acceptedFiles: "image/*",
+            autoProcessQueue: true,
+            headers: {
+                'X-CSRF-TOKEN': "{{ csrf_token() }}"
+            },
+        });
+
+        dzStandaloneBefore.on("sending", function(file, xhr, formData) {
+            formData.append('riser_id', riserData.id);
+            formData.append('type', 'before');
+        });
+    </script>
+
     <script>
         document.getElementById("createOperationForm")
             .addEventListener("submit", async function(e) {
@@ -845,9 +909,9 @@
                 const form = this;
                 const formData = new FormData(form);
 
-                // فایل‌های Dropzone
-                dz.getAcceptedFiles().forEach(file => {
-                    formData.append('photos[]', file);
+                // فایل‌های عکس بعد از تعمیر
+                dzAfter.getAcceptedFiles().forEach(file => {
+                    formData.append('photos_after[]', file);
                 });
 
                 try {
@@ -869,7 +933,7 @@
 
                     alert("عملیات با موفقیت ثبت شد.");
 
-                    dz.removeAllFiles(true);
+                    dzAfter.removeAllFiles(true);
 
                     createOperationModal.hide();
 
@@ -891,13 +955,14 @@
             document.getElementById("createOperationModal")
         );
 
-        function openCreateOperation() {
+        async function openCreateOperation() {
 
             document.getElementById("createOperationForm").reset();
 
             document.getElementById("operation_riser_id").value = riserData.id;
             loadMaterials();
             loadOperationTypes();
+            await loadPendingBeforePhotos();
 
 
             createOperationModal.show();
@@ -905,10 +970,30 @@
 
         }
 
+        async function loadPendingBeforePhotos() {
 
-        Dropzone.autoDiscover = false;
+            const container = document.getElementById('pendingBeforePhotos');
+            container.innerHTML = 'در حال بارگذاری...';
 
-        const dz = new Dropzone("#operationDropzone", {
+            try {
+                const res = await fetch(`{{ url('riser') }}/${riserData.id}/pending-before-photos`);
+                const photos = await res.json();
+
+                container.innerHTML = photos.length ?
+                    photos.map(p => `
+                        <img src="${p.url}"
+                             style="width:70px;height:70px;object-fit:cover;border-radius:6px;"
+                             class="border">
+                    `).join('') :
+                    '<span class="text-muted small">عکس قبل از عملیاتی ثبت نشده.</span>';
+
+            } catch (e) {
+                container.innerHTML = '<span class="text-danger small">خطا در بارگذاری عکس‌ها</span>';
+            }
+        }
+
+
+        const dzAfter = new Dropzone("#operationDropzoneAfter", {
 
             url: "/operation/photos/upload",
 
@@ -1101,7 +1186,7 @@
 
         function loadGallery() {
 
-            const photos = riserData.photos ?? [];
+            const photos = riserData.operations[0].photos ?? [];
 
             if (photos.length === 0) {
                 document.getElementById('thumbnailContainer').innerHTML = "";
@@ -1110,18 +1195,18 @@
 
             document.getElementById('mainImage').src = photos[0].url;
 
-            if (riserData.photos.length === 0) {
+            if (riserData.operations[0].photos.length === 0) {
                 document.getElementById("gallery").innerHTML = "عکسی وجود ندارد";
                 return;
             }
 
 
 
-            document.getElementById('mainImage').src = riserData.photos[0].url;
+            document.getElementById('mainImage').src = riserData.operations[0].photos[0].url;
 
             let html = '';
 
-            riserData.photos.forEach(photo => {
+            riserData.operations[0].photos.forEach(photo => {
 
                 html += `
 
@@ -1212,12 +1297,12 @@
                         row.status === 'دریافت شده'
                         ?
                         `<span class="badge bg-success">
-                                ${row.status}
-                             </span>`
+                                                        ${row.status}
+                                                     </span>`
                         :
                         `<span class="badge bg-warning">
-                                ${row.status}
-                             </span>`
+                                                        ${row.status}
+                                                     </span>`
                     }
                 </td>
 
@@ -1267,11 +1352,11 @@
                 ${
                     row.materials.length
                         ? row.materials.map(material => `
-                                                            <div>
-                                                                ${material.title}
-                                                                (${material.pivot.qty} ${material.unit})
-                                                            </div>
-                                                        `).join('')
+                                                                                    <div>
+                                                                                        ${material.title}
+                                                                                        (${material.pivot.qty} ${material.unit})
+                                                                                    </div>
+                                                                                `).join('')
                         : '-'
                 }
             </td>
@@ -1354,6 +1439,20 @@
             if (!item)
                 return;
 
+            const renderPhotoList = (photos) => (photos && photos.length) ?
+                photos.map(p => `
+                    <div class="position-relative d-inline-block me-2 mb-2" data-photo-id="${p.id}">
+                        <img src="${p.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;">
+                        <button type="button"
+                                class="btn btn-sm btn-danger position-absolute top-0 end-0 p-0 px-1"
+                                onclick="deleteOperationPhoto(${p.id}, this)">×</button>
+                    </div>
+                `).join('') :
+                '<span class="text-muted">عکسی ثبت نشده</span>';
+
+            const beforePhotos = (item.photos || []).filter(p => p.type === 'before');
+            const afterPhotos = (item.photos || []).filter(p => p.type === 'after');
+
             document.getElementById("operationDetail").innerHTML = `
 
         <table class="table table-bordered">
@@ -1368,7 +1467,7 @@
 
                 <td>
 
-                    ${item.operation}
+                    ${item.opencat.title}
 
                 </td>
 
@@ -1385,38 +1484,6 @@
                 <td>
 
                     ${item.date}
-
-                </td>
-
-            </tr>
-
-            <tr>
-
-                <th>
-
-                    پیمانکار
-
-                </th>
-
-                <td>
-
-                    ${item.contractor}
-
-                </td>
-
-            </tr>
-
-            <tr>
-
-                <th>
-
-                    هزینه
-
-                </th>
-
-                <td>
-
-                    ${item.cost}
 
                 </td>
 
@@ -1448,7 +1515,7 @@
 
                 <td>
 
-                    ${item.description}
+                    ${item.description ?? '-'}
 
                 </td>
 
@@ -1456,10 +1523,132 @@
 
         </table>
 
+        <div class="row mt-3">
+
+            <div class="col-md-6">
+
+                <label class="form-label">
+                    <i class="bi bi-camera"></i>
+                    عکس‌های قبل از تعمیر
+                </label>
+
+                <div id="operationDetailPhotosBefore" class="mb-2">${renderPhotoList(beforePhotos)}</div>
+
+                <div id="operationDetailDropzoneBefore" class="dropzone"></div>
+
+            </div>
+
+            <div class="col-md-6">
+
+                <label class="form-label">
+                    <i class="bi bi-camera-fill"></i>
+                    عکس‌های بعد از تعمیر
+                </label>
+
+                <div id="operationDetailPhotosAfter" class="mb-2">${renderPhotoList(afterPhotos)}</div>
+
+                <div id="operationDetailDropzoneAfter" class="dropzone"></div>
+
+            </div>
+
+        </div>
+
     `;
+
+            setupDetailDropzone(item.id);
 
             operationModal.show();
 
+        }
+
+        // -------- آپلود عکس بعد از ثبت عملیات (داخل مودال جزئیات، هر دو ستون) --------
+
+        let detailDzBefore = null;
+        let detailDzAfter = null;
+
+        function buildDetailDropzone(elementId, operationId, type, previewContainerId) {
+
+            const dz = new Dropzone(elementId, {
+                url: "{{ url('operation/photos/upload') }}",
+                paramName: "photo",
+                maxFilesize: 10,
+                acceptedFiles: "image/*",
+                autoProcessQueue: true,
+                headers: {
+                    'X-CSRF-TOKEN': "{{ csrf_token() }}"
+                },
+            });
+
+            dz.on("sending", function(file, xhr, formData) {
+                formData.append('operation_id', operationId);
+                formData.append('type', type);
+            });
+
+            dz.on("success", function(file, response) {
+                const wrap = document.createElement('div');
+                wrap.className = 'position-relative d-inline-block me-2 mb-2';
+                wrap.dataset.photoId = response.id;
+                wrap.innerHTML = `
+            <img src="${response.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;">
+            <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 p-0 px-1">×</button>
+        `;
+                wrap.querySelector('button').addEventListener('click', function() {
+                    deleteOperationPhoto(response.id, this);
+                });
+                document.getElementById(previewContainerId).appendChild(wrap);
+                file.previewElement.remove();
+            });
+
+            dz.on("error", function(file) {
+                alert('آپلود عکس با خطا مواجه شد.');
+                file.previewElement.remove();
+            });
+
+            return dz;
+        }
+
+        function setupDetailDropzone(operationId) {
+
+            if (detailDzBefore) {
+                detailDzBefore.destroy();
+                detailDzBefore = null;
+            }
+
+            if (detailDzAfter) {
+                detailDzAfter.destroy();
+                detailDzAfter = null;
+            }
+
+            detailDzBefore = buildDetailDropzone(
+                "#operationDetailDropzoneBefore", operationId, 'before', 'operationDetailPhotosBefore'
+            );
+
+            detailDzAfter = buildDetailDropzone(
+                "#operationDetailDropzoneAfter", operationId, 'after', 'operationDetailPhotosAfter'
+            );
+        }
+
+        async function deleteOperationPhoto(id, btn) {
+
+            if (!confirm('این تصویر حذف شود؟')) return;
+
+            try {
+
+                const response = await fetch(`/operation/photos/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                });
+
+                if (!response.ok) throw new Error('delete failed');
+
+                btn.closest('[data-photo-id]').remove();
+
+            } catch (e) {
+                console.log(e);
+                alert('حذف تصویر با خطا مواجه شد.');
+            }
         }
     </script>
 

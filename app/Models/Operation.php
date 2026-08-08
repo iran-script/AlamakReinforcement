@@ -80,4 +80,9 @@ class Operation extends Model
     {
         return $this->hasMany(WorkflowTransfer::class);
     }
+
+    public function images()
+    {
+        return $this->hasMany(OperationImage::class);
+    }
 }

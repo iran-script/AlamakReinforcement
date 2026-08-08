@@ -8,6 +8,7 @@ use App\Models\OperationMaterial;
 use App\Models\Riser;
 use App\Models\Contract;
 use App\Services\WorkflowService;
+use App\Models\OperationImage;
 
 class OperationController extends Controller
 {
@@ -15,7 +16,7 @@ class OperationController extends Controller
     public function __construct(private WorkflowService $workflow) {}
 
 
-   
+
     /**
      * Display a listing of the resource.
      */
@@ -48,6 +49,24 @@ class OperationController extends Controller
             'user_id' => auth()->id(),
             'contract_id' => $contract_id,
         ]);
+
+
+        // عکس‌های "قبل از تعمیر" که قبلاً (شاید ساعت‌ها قبل) برای این علمک گرفته شدن، به این عملیات وصل میشن
+        OperationImage::whereNull('operation_id')
+            ->where('riser_id', $operation->riser_id)
+            ->where('type', 'before')
+            ->update(['operation_id' => $operation->id]);
+
+        // عکس‌های "بعد از تعمیر" همین الان، همراه فرم آپلود میشن
+        foreach ($request->file('photos_after', []) as $file) {
+            OperationImage::create([
+                'operation_id' => $operation->id,
+                'type' => 'after',
+                'path' => $file->store('operation-photos', 'public'),
+                'original_name' => $file->getClientOriginalName(),
+                'uploaded_by' => auth()->id(),
+            ]);
+        }
 
         $riser = Riser::findOrFail($request->riser_id);
         $riser->status = 'submitOperation';
