@@ -207,12 +207,14 @@
                 حذف ترسیمات
             </button>
 
+            
+
             <div class="legend">
-                <span><i class="dot dot-done"></i> تعمیر شده</span>
-                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
-                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
-                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
-                <span><i class="dot dot-pending"></i> تعمیر نشده</span>
+                <span><i class="dot" style="background-color: #909494;"></i> پیش‌فرض</span>
+                <span><i class="dot" style="background-color: #f1c40f;"></i>  علامت‌گذاری شده</span>
+                <span><i class="dot" style="background-color: #2ecc71;"></i>  ثبت عمیرات </span>
+                <span><i class="dot" style="background-color: #e74c3c;"></i>  در انتظار نشت یابی</span>
+                
             </div>
 
             {{-- <input type="text" id="searchBox" placeholder="جستجوی کد..." style="margin-right: 30px">

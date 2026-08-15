@@ -8,6 +8,8 @@
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
     <script src="{{ url('js/bootstrap.js') }}"></script>
     <link rel="stylesheet" href="{{ url('css/dropzone.css') }}">
+    <link href="{{ url('css/ol.css') }}" rel="stylesheet">
+    <script src="{{ asset('js/ol.js') }}"></script>
 
     <script src="{{ url('js/dropzone.js') }}"></script>
     <script>
@@ -1099,6 +1101,7 @@
                 riserData = await response.json();
 
                 loadInfo();
+                loadMiniMap();
 
                 loadGallery();
                 loadWorkflow();
@@ -1185,47 +1188,30 @@
 
 
         function loadGallery() {
+            // پیدا کردن اولین operation ای که عکس داره
+            const operationWithPhotos = riserData.operations.find(op => (op.photos ?? []).length > 0);
 
-            const photos = riserData.operations[0].photos ?? [];
+            const photos = operationWithPhotos?.photos ?? [];
 
             if (photos.length === 0) {
                 document.getElementById('thumbnailContainer').innerHTML = "";
+                document.getElementById("gallery").innerHTML = "عکسی وجود ندارد";
                 return;
             }
 
             document.getElementById('mainImage').src = photos[0].url;
 
-            if (riserData.operations[0].photos.length === 0) {
-                document.getElementById("gallery").innerHTML = "عکسی وجود ندارد";
-                return;
-            }
-
-
-
-            document.getElementById('mainImage').src = riserData.operations[0].photos[0].url;
-
             let html = '';
-
-            riserData.operations[0].photos.forEach(photo => {
-
+            photos.forEach(photo => {
                 html += `
-
             <img
-
                 src="${photo.url}"
-
                 class="thumb"
-
                 onclick="changeImage('${photo.url}')"
-
             >
-
         `;
-
             });
-
             document.getElementById('thumbnailContainer').innerHTML = html;
-
         }
 
 
@@ -1297,12 +1283,12 @@
                         row.status === 'دریافت شده'
                         ?
                         `<span class="badge bg-success">
-                                                        ${row.status}
-                                                     </span>`
+                                                                                    ${row.status}
+                                                                                 </span>`
                         :
                         `<span class="badge bg-warning">
-                                                        ${row.status}
-                                                     </span>`
+                                                                                    ${row.status}
+                                                                                 </span>`
                     }
                 </td>
 
@@ -1352,11 +1338,11 @@
                 ${
                     row.materials.length
                         ? row.materials.map(material => `
-                                                                                    <div>
-                                                                                        ${material.title}
-                                                                                        (${material.pivot.qty} ${material.unit})
-                                                                                    </div>
-                                                                                `).join('')
+                                                                                                                <div>
+                                                                                                                    ${material.title}
+                                                                                                                    (${material.pivot.qty} ${material.unit})
+                                                                                                                </div>
+                                                                                                            `).join('')
                         : '-'
                 }
             </td>
@@ -1430,7 +1416,63 @@
 
         }
 
+        function loadMiniMap() {
+            const coordinate = riserData.coordinate;
 
+            if (!coordinate || !coordinate.coordinates || coordinate.coordinates.length < 2) {
+                document.getElementById('miniMap').innerHTML = '<p class="text-center pt-5">مختصات موجود نیست</p>';
+                return;
+            }
+
+            const [lng, lat] = coordinate.coordinates;
+            const coord = ol.proj.fromLonLat([lng, lat]);
+
+            const marker = new ol.Feature({
+                geometry: new ol.geom.Point(coord),
+            });
+            marker.setStyle(new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 8,
+                    fill: new ol.style.Fill({
+                        color: '#dc3545', // یا هر رنگ دلخواه
+                    }),
+                    stroke: new ol.style.Stroke({
+                        color: '#fff',
+                        width: 2,
+                    }),
+                }),
+            }));
+
+            const vectorLayer = new ol.layer.Vector({
+                source: new ol.source.Vector({
+                    features: [marker]
+                }),
+            });
+
+            const osm = new ol.layer.Tile({
+                source: new ol.source.XYZ({
+                    url: '{{ url('/tiles/{z}/{x}/{y}.png') }}'
+                })
+            });
+
+
+            const map = new ol.Map({
+                target: 'miniMap',
+                layers: [
+                    osm,
+                    vectorLayer,
+                ],
+                view: new ol.View({
+                    center: coord,
+                    zoom: 17,
+                }),
+                interactions: ol.interaction.defaults.defaults({
+                    mouseWheelZoom: false,
+                }),
+            });
+
+            return map;
+        }
 
         function showOperation(id) {
 

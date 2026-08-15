@@ -57,9 +57,14 @@ class RiserController extends Controller
         */
 
         $riser = DB::table('riser')
+            ->select('id', 'r_giscode','geom', 'updated_at', 'status')
+            ->selectRaw('ST_Asgeojson(ST_Transform(geom, 4326)) as wkt')
             ->where('id', $id)
             ->first();
+        
 
+       
+        
         $zone = DB::table('zone')
             ->whereRaw(
                 'ST_Contains(geom, ST_Transform(?,32639))',
@@ -182,6 +187,9 @@ class RiserController extends Controller
 
             'operation_cat' => $operation_cat,
             'material' => $material,
+
+            'coordinate' => json_decode($riser->wkt),
+
 
             // 'subscription'=>$riser->subscription,
 
