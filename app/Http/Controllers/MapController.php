@@ -16,7 +16,8 @@ class MapController extends Controller
     public function search(Request $request)
     {
         $code = $request->code;
-
+        
+       
         $row = DB::table('riser')
             ->selectRaw(
                 'ST_X(geom) as lon,
