@@ -5,10 +5,24 @@
 
 .env
 .env.*
+!.env.example
+!.env.docker.example
+
+# Local license signing material; provision through a secret manager.
+/app/licence/private.pem
+*.key
+
+# Isolated local test tooling and PHPUnit runtime cache.
+/.test-tools/
+/.phpunit.result.cache
 
 /storage/*.key
 
 /storage/app/public
+/storage/app/private
+/storage/app/maps
+/storage/license
+/storage/backups
 
 /storage/framework/cache/*
 /storage/framework/sessions/*
