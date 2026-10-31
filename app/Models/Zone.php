@@ -26,4 +26,9 @@ class Zone extends Model
     {
         return $this->belongsTo(User::class, 'creator_id');
     }
+
+    public function organization()
+    {
+        return $this->belongsTo(Organization::class);
+    }
 }

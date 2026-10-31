@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>لایسنس منقضی شده</title>
+    <title> خطا</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
@@ -69,11 +69,11 @@
         </div>
 
         <h2 class="text-danger mb-3">
-            لایسنس نرم‌افزار منقضی شده است
+         خطا
         </h2>
 
         <p class="lead">
-            برای تمدید یا فعال‌سازی مجدد با پشتیبانی تماس بگیرید.
+            برای پشتیبانی تماس بگیرید.
         </p>
 
         <span class="support-line">

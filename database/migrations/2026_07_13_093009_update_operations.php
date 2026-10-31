@@ -16,12 +16,6 @@ return new class extends Migration
                 ->cascadeOnUpdate()
                 ->cascadeOnDelete();
 
-            $table
-                ->after('riser_id')
-                ->constrained('operation_categories')
-                ->cascadeOnUpdate()
-                ->restrictOnDelete();
-
             $table->foreignId('user_id')
                 ->nullable()
                 ->after('operation_category_id')
@@ -69,13 +63,11 @@ return new class extends Migration
         Schema::table('operations', function (Blueprint $table) {
 
             $table->dropForeign(['riser_id']);
-            $table->dropForeign(['operation_category_id']);
             $table->dropForeign(['user_id']);
             $table->dropForeign(['contractor_id']);
 
             $table->dropColumn([
                 'riser_id',
-                'operation_category_id',
                 'user_id',
                 'contractor_id',
                 'operation_date',

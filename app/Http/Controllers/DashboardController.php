@@ -13,19 +13,23 @@ use Illuminate\Support\Facades\DB;
 class DashboardController extends Controller
 {
 
-    public function index()
+    public function index(\Illuminate\Http\Request $request)
     {
+        $user = $request->user();
+        $visibleOperations = fn ($query) => $query->whereHas('riser', fn ($riser) => $riser->visibleTo($user));
+        $operations = Operation::query()->where($visibleOperations);
+        $visibleOperationIds = Operation::query()->where($visibleOperations)->select('operations.id');
 
 
         // =====================
         // علمک‌ها
         // =====================
 
-        $totalRisers = Riser::count();
+        $totalRisers = Riser::query()->visibleTo($user)->count();
 
 
 
-        $doneRisers = Operation::where('status', 'done')
+        $doneRisers = Operation::query()->where($visibleOperations)->where('status', 'done')
             ->whereNotNull('riser_id')
             ->distinct('riser_id')
             ->count('riser_id');
@@ -48,14 +52,16 @@ class DashboardController extends Controller
         // عملیات
         // =====================
 
-        $todayOperations = Operation::whereDate(
+        $todayOperations = Operation::query()->where($visibleOperations)->whereDate(
             'created_at',
             today()
         )->count();
 
 
 
-        $contract=Contract::withCount('operations')
+        $contract = Contract::query()
+            ->whereHas('operations', $visibleOperations)
+            ->withCount(['operations' => $visibleOperations])
         ->orderByDesc('operations_count')
             ->limit(10)
             ->get();
@@ -69,7 +75,7 @@ class DashboardController extends Controller
 
         // کاربرانی که عملیات ثبت کرده‌اند
 
-        $activeUsers = Operation::whereNotNull('user_id')
+        $activeUsers = Operation::query()->where($visibleOperations)->whereNotNull('user_id')
             ->distinct('user_id')
             ->count('user_id');
 
@@ -77,7 +83,7 @@ class DashboardController extends Controller
 
         // رتبه کاربران بر اساس تعداد عملیات
 
-        $userStats = User::withCount('operations')
+        $userStats = User::withCount(['operations' => $visibleOperations])
             ->orderByDesc('operations_count')
             ->limit(10)
             ->get();
@@ -89,6 +95,7 @@ class DashboardController extends Controller
 
         // تعداد کل اقلام مصرف شده
         $totalMaterialQty = DB::table('operation_materials')
+            ->whereIn('operation_id', $visibleOperationIds)
             ->sum('qty');
 
 
@@ -103,6 +110,7 @@ class DashboardController extends Controller
                 '=',
                 'operation_materials.material_id'
             )
+            ->whereIn('operation_materials.operation_id', $visibleOperationIds)
             ->selectRaw('SUM(operation_materials.qty) as total_qty')
             ->groupBy(
                 'materials.id',
@@ -119,7 +127,9 @@ class DashboardController extends Controller
         // زون ها
         // =====================
 
-        $totalZones = Zone::count();
+        $totalZones = $user->hasRole('superadmin')
+            ? Zone::count()
+            : ($user->zone_id ? Zone::whereKey($user->zone_id)->count() : 0);
 
 
 
@@ -140,7 +150,7 @@ class DashboardController extends Controller
 
             'user'
 
-        ])
+        ])->where($visibleOperations)
 
             ->latest()
 

@@ -193,13 +193,12 @@
                 <option value="error"> رد شده</option>
             </select>
 
-            <!-- LAYER SWITCHER -->
-            {{-- لایه:
-        <select id="layerSwitcher" onchange="switchLayer()">
-            <option value="riser">Riser</option>
-            <option value="valve">Valve</option>
-            <option value="pipe">Pipe</option>
-        </select> --}}
+            @if($gisLayers->isNotEmpty())
+                <span class="toolbar-label"><i class="bi bi-layers"></i> لایه:</span>
+                <select id="layerSwitcher" onchange="switchLayer()">
+                    @foreach($gisLayers as $layer)<option value="{{ $layer['key'] }}">{{ $layer['title'] }}</option>@endforeach
+                </select>
+            @endif
 
 
             <button id="btnHideZone" type="button" class="btn btn-outline-danger btn-sm" title="حذف  ترسیمات">
@@ -241,14 +240,11 @@
     </div>
 
     <script>
-        let currentLayer = 'riser';
+        const configuredLayers = @json($gisLayers->keyBy('key'));
+        let currentLayer = @json($gisLayers->first()['key'] ?? null);
 
         const styleCache = {};
         const featureIndex = {};
-
-        function getTileUrl(layer) {
-            return `{{ url('/tiles') }}/${layer}/{z}/{x}/{y}.pbf`;
-        }
 
         function getStyle(status, code) {
 
@@ -267,7 +263,7 @@
                 styleCache[key] = new ol.style.Style({
 
                     image: new ol.style.Circle({
-                        radius: 6,
+                        radius: 13,
                         fill: new ol.style.Fill({
                             color: statusColors[status] || '#95a5a6'
                         }),
@@ -295,33 +291,65 @@
             return styleCache[key];
         }
 
-        let vectorTileLayer = new ol.layer.VectorTile({
-            declutter: true,
-            source: new ol.source.VectorTile({
-                format: new ol.format.MVT(),
-                url: getTileUrl(currentLayer),
-                cacheSize: 512
-            }),
+        function createOperationalLayer(layerKey) {
+            const definition = configuredLayers[layerKey];
 
-            style: function(feature) {
-
-                const code = feature.get('code');
-
-                if (code) {
-                    const key = currentLayer + '_' + code;
-                    featureIndex[key] = feature;
-                }
-
-                return getStyle(
-                    feature.get('status'),
-                    code
-                );
+            if (!definition) {
+                return null;
             }
-        });
+
+            const commonOptions = {
+                minZoom: definition.min_zoom,
+                maxZoom: definition.max_zoom
+            };
+
+            if (definition.type === 'wms') {
+                const wms = definition.wms;
+
+                return new ol.layer.Tile({
+                    ...commonOptions,
+                    source: new ol.source.TileWMS({
+                        url: definition.endpoint,
+                        params: {
+                            'LAYERS': wms.layers,
+                            'FORMAT': wms.format,
+                            'TRANSPARENT': wms.transparent,
+                            'VERSION': wms.version,
+                            'STYLES': wms.styles,
+                            'TILED': true
+                        },
+                        serverType: wms.server_type || undefined
+                    })
+                });
+            }
+
+            return new ol.layer.VectorTile({
+                ...commonOptions,
+                declutter: true,
+                source: new ol.source.VectorTile({
+                    format: new ol.format.MVT(),
+                    url: definition.endpoint,
+                    cacheSize: 512
+                }),
+                style: function(feature) {
+                    const code = feature.get('code');
+
+                    if (code) {
+                        const key = currentLayer + '_' + code;
+                        featureIndex[key] = feature;
+                    }
+
+                    return getStyle(feature.get('status'), code);
+                }
+            });
+        }
+
+        let operationalLayer = createOperationalLayer(currentLayer);
 
         const osm = new ol.layer.Tile({
             source: new ol.source.XYZ({
-                url: '{{ url('/tiles/{z}/{x}/{y}.png') }}'
+                url: @json($baseTileUrl),
+                attributions: @json($baseTileAttribution)
             })
         });
 
@@ -331,7 +359,7 @@
             target: 'map',
             layers: [
                 osm,
-                vectorTileLayer
+                ...(operationalLayer ? [operationalLayer] : [])
             ],
             view: new ol.View({
                 center: ol.proj.fromLonLat([49.5, 34.0]),
@@ -354,11 +382,8 @@
                 rejected: '❌ رد شده'
             };
 
-            const status = feature.get('status');
-
-
-
             if (feature) {
+                const status = feature.get('status');
                 document.getElementById('info').innerHTML = `
                     <b>کد:</b><br>
                     <span class="plate">${feature.get('code')}</span><br><br>
@@ -461,9 +486,13 @@
         /* STATUS FILTER */
         function applyStatusFilter() {
 
+            if (configuredLayers[currentLayer]?.type !== 'vector_tile' || !operationalLayer) {
+                return;
+            }
+
             const status = document.getElementById('statusFilter').value;
 
-            vectorTileLayer.setStyle(function(feature) {
+            operationalLayer.setStyle(function(feature) {
 
                 const featureStatus = feature.get('status');
 
@@ -477,7 +506,7 @@
                 );
             });
 
-            vectorTileLayer.changed();
+            operationalLayer.changed();
         }
 
         /* SWITCH LAYER */
@@ -488,15 +517,14 @@
             // reset index
             Object.keys(featureIndex).forEach(k => delete featureIndex[k]);
 
-            vectorTileLayer.setSource(
-                new ol.source.VectorTile({
-                    format: new ol.format.MVT(),
-                    url: getTileUrl(currentLayer),
-                    cacheSize: 512
-                })
-            );
+            if (operationalLayer) {
+                map.removeLayer(operationalLayer);
+            }
 
-            vectorTileLayer.changed();
+            operationalLayer = createOperationalLayer(currentLayer);
+            if (operationalLayer) {
+                map.addLayer(operationalLayer);
+            }
         }
 
         fetch('{{ route('myextent') }}')

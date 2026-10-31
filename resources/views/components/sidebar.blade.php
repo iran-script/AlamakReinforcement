@@ -26,6 +26,22 @@
         @foreach ($menus as $menu)
             @include('menus.item', ['menu' => $menu])
         @endforeach
+        @can('viewAny', App\Models\FormDefinition::class)
+            <a href="{{ route('platform.forms.index') }}" class="{{ request()->routeIs('platform.forms.*') ? 'active-menu' : '' }}">
+                <i class="bi bi-ui-checks-grid"></i>
+                <span class="text">فرم‌ساز / مدیریت فرم‌ها</span>
+            </a>
+        @endcan
+        @can('viewAny', App\Models\WorkflowDefinition::class)
+            <a href="{{ route('platform.workflows.index') }}" class="{{ request()->routeIs('platform.workflows.*') ? 'active-menu' : '' }}">
+                <i class="bi bi-diagram-3"></i><span class="text">مدیریت گردش‌کار</span>
+            </a>
+        @endcan
+        @can('create', App\Models\GisMapSetting::class)
+            <a href="{{ route('settings.gis.edit') }}" class="{{ request()->routeIs('settings.gis.*') ? 'active-menu' : '' }}">
+                <i class="bi bi-map"></i><span class="text">تنظیمات نقشه GIS</span>
+            </a>
+        @endcan
     </div>
 
 

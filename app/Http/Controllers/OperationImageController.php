@@ -2,40 +2,44 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Models\Operation;
 use App\Models\OperationImage;
+use App\Models\Riser;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 
-
-
-// app/Http/Controllers/OperationImageController.php
-// app/Http/Controllers/OperationPhotoController.php
 class OperationImageController extends Controller
 {
     public function store(Request $request)
     {
-        
-        $request->validate([
-            'photo' => 'required|image|max:10240',
-            'operation_id' => 'nullable|exists:operation,id',
-            'riser_id' => 'nullable|exists:riser,id',
-            'type' => 'required|in:before,after',
+        $validated = $request->validate([
+            'photo' => ['required', 'image', 'max:10240'],
+            'operation_id' => ['nullable', 'integer', 'exists:operations,id'],
+            'riser_id' => ['nullable', 'integer', 'exists:riser,id'],
+            'type' => ['required', 'in:before,after'],
         ]);
 
-        if (!$request->operation_id && !$request->riser_id) {
-            return response()->json(['message' => 'باید operation_id یا riser_id ارسال شود.'], 422);
+        if (empty($validated['operation_id']) && empty($validated['riser_id'])) {
+            return response()->json(['message' => 'operation_id or riser_id is required.'], 422);
         }
 
-        $path = $request->file('photo')->store('operation-photos', 'public');
+        $operation = null;
+        if (! empty($validated['operation_id'])) {
+            $operation = Operation::query()->with('riser')->findOrFail($validated['operation_id']);
+            Gate::authorize('update', $operation);
 
-        $photo = OperationImage::create([
-            'operation_id' => $request->operation_id,
-            'riser_id' => $request->riser_id,
-            'type' => $request->type,
-            'path' => $path,
-            'original_name' => $request->file('photo')->getClientOriginalName(),
-            'uploaded_by' => auth()->id(),
-        ]);
+            if (! empty($validated['riser_id']) && (int) $validated['riser_id'] !== (int) $operation->riser_id) {
+                return response()->json(['message' => 'The operation and riser do not match.'], 422);
+            }
+
+            $validated['riser_id'] = $operation->riser_id;
+        } else {
+            Gate::authorize('create', Operation::class);
+            Riser::query()->visibleTo($request->user())->findOrFail($validated['riser_id']);
+        }
+
+        $photo = $this->createPhoto($request, $validated, $operation);
 
         return response()->json([
             'id' => $photo->id,
@@ -44,23 +48,52 @@ class OperationImageController extends Controller
         ]);
     }
 
-    public function pendingBefore($riserId)
+    public function pendingBefore(Request $request, $riserId)
     {
-        $photos = OperationImage::whereNull('operation_id')
+        Gate::authorize('viewAny', Operation::class);
+        Riser::query()->visibleTo($request->user())->findOrFail($riserId);
+
+        $photos = OperationImage::query()
+            ->whereNull('operation_id')
             ->where('riser_id', $riserId)
             ->where('type', 'before')
             ->orderBy('id')
             ->get()
-            ->map(fn($p) => ['id' => $p->id, 'url' => asset('storage/' . $p->path)]);
+            ->map(fn (OperationImage $photo) => [
+                'id' => $photo->id,
+                'url' => Storage::disk('public')->url($photo->path),
+            ]);
 
         return response()->json($photos);
     }
 
-    public function destroy(OperationImage $operationPhoto)
+    public function destroy(Request $request, OperationImage $operationPhoto)
     {
+        if ($operationPhoto->operation_id !== null) {
+            $operation = Operation::query()->findOrFail($operationPhoto->operation_id);
+            Gate::authorize('update', $operation);
+        } else {
+            Gate::authorize('create', Operation::class);
+            Riser::query()->visibleTo($request->user())->findOrFail($operationPhoto->riser_id);
+        }
+
         Storage::disk('public')->delete($operationPhoto->path);
         $operationPhoto->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    private function createPhoto(Request $request, array $validated, ?Operation $operation): OperationImage
+    {
+        $file = $request->file('photo');
+
+        return OperationImage::query()->create([
+            'operation_id' => $operation?->id,
+            'riser_id' => $validated['riser_id'] ?? $operation?->riser_id,
+            'type' => $validated['type'],
+            'path' => $file->store('operation-photos', 'public'),
+            'original_name' => $file->getClientOriginalName(),
+            'uploaded_by' => $request->user()->id,
+        ]);
     }
 }

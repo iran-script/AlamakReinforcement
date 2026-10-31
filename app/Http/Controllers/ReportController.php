@@ -38,13 +38,17 @@ class ReportController extends Controller
 
         return view('report.index', [
 
-            'users' => User::orderBy('name')->get(),
+            'users' => $user->hasRole('superadmin')
+                ? User::orderBy('name')->get()
+                : User::where('zone_id', $user->zone_id)->orderBy('name')->get(),
 
             'materials' => Material::orderBy('title')->get(),
 
             'operations' => OperationCategory::orderBy('title')->get(),
 
-            'contracts' => Contract::orderBy('contractor_name')->get(),
+            'contracts' => $user->hasRole('superadmin')
+                ? Contract::orderBy('contractor_name')->get()
+                : Contract::whereHas('operations.riser', fn ($q) => $q->visibleTo($user))->orderBy('contractor_name')->get(),
 
             'zones' => $zones,
 

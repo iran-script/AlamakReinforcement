@@ -6,18 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 use App\Models\OperationCategory;
 use App\Models\User;
 
-
-
 class Operation extends Model
 {
-    //
-
+    // contract_id تکراری بود، یکیش حذف شد
     protected $fillable = [
         'riser_id',
         'contract_id',
         'operation_category_id',
         'user_id',
-        'contract_id',
         'operation_date',
         'start_time',
         'end_time',
@@ -26,7 +22,6 @@ class Operation extends Model
         'total_cost',
         'description',
     ];
-
 
     public function contract()
     {
@@ -74,8 +69,6 @@ class Operation extends Model
         return $this->belongsTo(Riser::class);
     }
 
-    // app/Models/Operation.php
-    // app/Models/Operation.php
     public function workflowTransfers()
     {
         return $this->hasMany(WorkflowTransfer::class);

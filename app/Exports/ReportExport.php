@@ -39,6 +39,10 @@ class ReportExport implements
             'supervisors'
         ]);
 
+        if (! $this->request->user()->hasRole('superadmin')) {
+            $query->whereHas('riser', fn ($riser) => $riser->visibleTo($this->request->user()));
+        }
+
 
 
         if ($this->request->filled('from')) {

@@ -14,6 +14,16 @@
     <script src="{{ url('js/dropzone.js') }}"></script>
     <script>
         Dropzone.autoDiscover = false;
+
+        // مجبور کردن Dropzone به باز کردن مستقیم دوربین (نه گالری/فایل‌های قدیمی)
+        // چون Dropzone هر بار بعد از انتخاب فایل، input مخفی‌اش را از نو می‌سازد،
+        // این پچ روی prototype تضمین می‌کند capture همیشه اعمال بماند.
+        Dropzone.prototype._originalSetupHiddenFileInput = Dropzone.prototype._setupHiddenFileInput;
+        Dropzone.prototype._setupHiddenFileInput = function () {
+            this._originalSetupHiddenFileInput();
+            this.hiddenFileInput.setAttribute('capture', 'environment');
+            this.hiddenFileInput.setAttribute('accept', 'image/*');
+        };
     </script>
 
 
@@ -128,7 +138,6 @@
             --maxw: 1180px;
         }
 
-        /* ===== SHOWCASE (signature element) ===== */
         .showcase {
             background: var(--navy-950);
             color: #fff;
@@ -398,58 +407,6 @@
             <!-- LEFT -->
 
             <div class="col-lg-8">
-                {{-- <section id="showcase" class="showcase">
-                    <div class="wrap">
-                        
-                        <div class="showcase-glow"></div>
-                        <div class="report-card reveal">
-                            <div class="report-meta">
-                                <div class="m-item">کد علمک <b>OLK-3391-B</b></div>
-                                <div class="m-item">منطقه <b style="direction:rtl;font-family:'Vazirmatn'">شهرک صنعتی — بلوک
-                                        ۴</b></div>
-                                <div class="m-item">تاریخ تعمیر <b>1404/04/28</b></div>
-                                <div class="m-item">ناظر <b style="direction:rtl;font-family:'Vazirmatn'">مهندس رضایی</b>
-                                </div>
-                            </div>
-
-                            <div class="compare" id="compareWidget">
-                                <div class="layer before-layer">
-                                    <img width="100%" height="100%" id="mainImage" src="{{ url('img/alamak.jpg') }}" class="main-image">
-                                </div>
-                                <div class="layer after-layer">
-                                    <svg width="100%" height="100%" viewBox="0 0 800 400"
-                                        preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-                                        <rect width="800" height="400" fill="#EFE9DD" />
-                                        <rect x="0" y="330" width="800" height="70" fill="#D8CFBB" />
-                                        <rect x="360" y="90" width="80" height="250" fill="#E8B93A" stroke="#B8721B"
-                                            stroke-width="2" />
-                                        <rect x="345" y="70" width="110" height="30" fill="#D98F2B" stroke="#B8721B"
-                                            stroke-width="2" />
-                                        <circle cx="400" cy="200" r="3" fill="#8A6C1E" opacity="0.5" />
-                                        <path d="M330 340 q20 -10 40 0 t40 0 t40 0 t40 0" stroke="#3F7A5C"
-                                            stroke-width="2.5" fill="none" />
-                                    </svg>
-                                </div>
-                                <span class="label before">پیش از تعمیر</span>
-                                <span class="label after">پس از تعمیر</span>
-                                <div class="divider" id="divider"></div>
-                                <div class="handle" id="handle">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                        stroke="#0B2033" stroke-width="2.4">
-                                        <path d="M8 7l-5 5 5 5M16 7l5 5-5 5" />
-                                    </svg>
-                                </div>
-                                <input type="range" id="compareRange" min="0" max="100" value="50"
-                                    aria-label="مقایسه تصویر پیش و پس از تعمیر">
-                            </div>
-
-                            <div class="report-footer">
-                                <span class="verdict">تأیید شد — تعویض رایزر و رنگ‌آمیزی استاندارد</span>
-                                <span class="note">مصالح مصرفی: لوله فولادی ۲″، رنگ ضدزنگ زرد، بست فلزی ×۲</span>
-                            </div>
-                        </div>
-                    </div>
-                </section> --}}
                 <!-- GALLERY -->
 
                 <div class="card card-custom">
@@ -503,9 +460,6 @@
                     </div>
 
                     <div class="card-body">
-                        {{-- @if (!auth()->user()->hasRole('supervisor')) --}}
-
-                        {{-- @endif --}}
 
                         <div class="d-flex justify-content-end mb-3 gap-2">
                             <button class="btn btn-outline-primary" onclick="beforePhotoModal.show()">
@@ -539,10 +493,6 @@
                                         <th>اقلام مصرفی</th>
 
                                         <th>جزئیات</th>
-
-                                        {{-- @if (auth()->user()->hasRole('supervisor'))
-                                            <th>تایید یا رد</th>
-                                        @endif --}}
 
                                     </tr>
 
@@ -611,7 +561,7 @@
 
                 </div>
 
-                <!-- SUPERVISORS -->
+                <!-- WORKFLOW -->
 
                 <div class="card card-custom">
 
@@ -747,12 +697,13 @@
             <form id="createOperationForm" action="{{ route('operations.store') }}" method="POST">
                 @csrf
                 <input type="hidden" name="riser_id" id="operation_riser_id">
+                <input type="hidden" id="operation_edit_id" value="">
 
                 <div class="modal-content">
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 
                     <div class="modal-header">
-                        <h5 class="modal-title">
+                        <h5 class="modal-title" id="operationModalTitle">
                             ثبت عملیات جدید
                         </h5>
 
@@ -797,20 +748,33 @@
                                     متریال مصرفی
                                 </label>
 
-                                <table class="table table-bordered table-hover align-middle">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>متریال</th>
-                                            <th width="120">واحد</th>
-                                            <th width="150">تعداد</th>
-                                        </tr>
-                                    </thead>
+                                <input
+                                    type="text"
+                                    id="materialSearch"
+                                    class="form-control mb-2"
+                                    placeholder="جستجوی متریال..."
+                                    autocomplete="off">
 
-                                    <tbody id="materialsContainer">
+                                <div style="max-height: 320px; overflow-y: auto;">
+                                    <table class="table table-bordered table-hover align-middle mb-0">
+                                        <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                            <tr>
+                                                <th>متریال</th>
+                                                <th width="120">واحد</th>
+                                                <th width="150">تعداد</th>
+                                            </tr>
+                                        </thead>
 
-                                    </tbody>
+                                        <tbody id="materialsContainer">
 
-                                </table>
+                                        </tbody>
+
+                                    </table>
+                                </div>
+
+                                <div id="materialSearchEmpty" class="text-muted small mt-2 d-none">
+                                    موردی یافت نشد.
+                                </div>
 
                             </div>
 
@@ -849,7 +813,7 @@
                             انصراف
                         </button>
 
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary" id="operationSubmitBtn">
                             <i class="bi bi-save"></i>
                             ذخیره عملیات
                         </button>
@@ -910,15 +874,25 @@
 
                 const form = this;
                 const formData = new FormData(form);
+                const editId = document.getElementById("operation_edit_id").value;
 
-                // فایل‌های عکس بعد از تعمیر
+                // فایل‌های عکس بعد از تعمیر (هم در ثبت، هم در ویرایش قابل اضافه‌شدن است)
                 dzAfter.getAcceptedFiles().forEach(file => {
                     formData.append('photos_after[]', file);
                 });
 
+                let url = form.action;
+
+                if (editId) {
+                    // Laravel method spoofing: خودِ درخواست POST می‌ماند تا آپلود فایل درست کار کند،
+                    // ولی روتینگ آن را به‌عنوان PUT در نظر می‌گیرد
+                    formData.append('_method', 'PUT');
+                    url = `{{ url('operations') }}/${editId}`;
+                }
+
                 try {
 
-                    const response = await fetch(form.action, {
+                    const response = await fetch(url, {
                         method: 'POST',
                         headers: {
                             'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value,
@@ -933,7 +907,7 @@
                         throw result;
                     }
 
-                    alert("عملیات با موفقیت ثبت شد.");
+                    alert(editId ? "عملیات با موفقیت ویرایش شد." : "عملیات با موفقیت ثبت شد.");
 
                     dzAfter.removeAllFiles(true);
 
@@ -944,8 +918,6 @@
                 } catch (error) {
 
                     console.log(error);
-
-
 
                 }
 
@@ -960,16 +932,92 @@
         async function openCreateOperation() {
 
             document.getElementById("createOperationForm").reset();
+            document.getElementById("operation_edit_id").value = '';
+            document.getElementById("operationModalTitle").textContent = 'ثبت عملیات جدید';
+            document.getElementById("operationSubmitBtn").innerHTML = '<i class="bi bi-save"></i> ذخیره عملیات';
 
             document.getElementById("operation_riser_id").value = riserData.id;
             loadMaterials();
             loadOperationTypes();
             await loadPendingBeforePhotos();
 
+            const searchInput = document.getElementById('materialSearch');
+            searchInput.value = '';
+            filterMaterials('');
 
             createOperationModal.show();
 
+        }
 
+        async function openEditOperation(id) {
+
+            const item = riserData.operations.find(x => x.id == id);
+            if (!item) return;
+
+            document.getElementById("createOperationForm").reset();
+            document.getElementById("operation_edit_id").value = item.id;
+            document.getElementById("operationModalTitle").textContent = 'ویرایش عملیات';
+            document.getElementById("operationSubmitBtn").innerHTML = '<i class="bi bi-save"></i> ذخیره تغییرات';
+
+            document.getElementById("operation_riser_id").value = riserData.id;
+
+            loadOperationTypes();
+            await loadMaterialsForEdit(item);
+
+            // برای ویرایش، عکس‌های "قبل از عملیات" در انتظار معنا ندارد (قبلاً وصل شده)
+            document.getElementById('pendingBeforePhotos').innerHTML =
+                '<span class="text-muted small">برای مدیریت عکس‌ها از دکمه «مشاهده» استفاده کن.</span>';
+
+            const searchInput = document.getElementById('materialSearch');
+            searchInput.value = '';
+            filterMaterials('');
+
+            createOperationModal.show();
+
+            // مقداردهی select و فیلدهای متنی بعد از پر شدن گزینه‌های select (چون async است، کمی تاخیر لازم است)
+            setTimeout(() => {
+                document.getElementById('operationcat').value = item.opencat.id;
+                document.querySelector('[name="status"]').value = item.status;
+                if (item.priority) {
+                    document.querySelector('[name="priority"]').value = item.priority;
+                }
+                document.querySelector('[name="description"]').value = item.description ?? '';
+            }, 0);
+        }
+
+        async function loadMaterialsForEdit(item) {
+
+            const materials = riserData.material;
+            let html = '';
+
+            materials.forEach(material => {
+
+                const normalizedTitle = normalizeFaText(material.title);
+                const existing = item.materials.find(m => m.id === material.id);
+                const qty = existing ? existing.pivot.qty : 0;
+
+                html += `
+            <tr class="material-row" data-title="${normalizedTitle}">
+
+                <td>${material.title}</td>
+
+                <td>${material.unit}</td>
+
+                <td>
+                    <input
+                        type="number"
+                        class="form-control"
+                        min="0"
+                        value="${qty}"
+                        name="materials[${material.id}]">
+                </td>
+
+            </tr>
+        `;
+
+            });
+
+            document.getElementById('materialsContainer').innerHTML = html;
         }
 
         async function loadPendingBeforePhotos() {
@@ -1055,13 +1103,15 @@
         const divider = document.getElementById('divider');
         const handle = document.getElementById('handle');
 
-        function updateCompare(val) {
-            afterLayer.style.clipPath = `inset(0 ${100-val}% 0 0)`;
-            divider.style.right = val + '%';
-            handle.style.right = val + '%';
+        if (range) {
+            function updateCompare(val) {
+                afterLayer.style.clipPath = `inset(0 ${100-val}% 0 0)`;
+                divider.style.right = val + '%';
+                handle.style.right = val + '%';
+            }
+            range.addEventListener('input', e => updateCompare(e.target.value));
+            updateCompare(50);
         }
-        range.addEventListener('input', e => updateCompare(e.target.value));
-        updateCompare(50);
 
         // Reveal on scroll
         const revealEls = document.querySelectorAll('.reveal');
@@ -1152,15 +1202,16 @@
 
         async function loadMaterials() {
 
-
             const materials = riserData.material;
 
             let html = '';
 
             materials.forEach(material => {
 
+                const normalizedTitle = normalizeFaText(material.title);
+
                 html += `
-            <tr>
+            <tr class="material-row" data-title="${normalizedTitle}">
 
                 <td>${material.title}</td>
 
@@ -1184,7 +1235,34 @@
 
         }
 
+        // یکسان‌سازی حروف عربی/فارسی رایج (ی/ي، ک/ك) و حذف فاصله‌های اضافه برای جستجوی دقیق‌تر
+        function normalizeFaText(text) {
+            return (text || '')
+                .toString()
+                .toLowerCase()
+                .replace(/ي/g, 'ی')
+                .replace(/ك/g, 'ک')
+                .trim();
+        }
 
+        function filterMaterials(query) {
+
+            const normalizedQuery = normalizeFaText(query);
+            const rows = document.querySelectorAll('#materialsContainer .material-row');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const matches = row.dataset.title.includes(normalizedQuery);
+                row.classList.toggle('d-none', !matches);
+                if (matches) visibleCount++;
+            });
+
+            document.getElementById('materialSearchEmpty').classList.toggle('d-none', visibleCount !== 0);
+        }
+
+        document.getElementById('materialSearch').addEventListener('input', function () {
+            filterMaterials(this.value);
+        });
 
 
         function loadGallery() {
@@ -1195,7 +1273,6 @@
 
             if (photos.length === 0) {
                 document.getElementById('thumbnailContainer').innerHTML = "";
-                document.getElementById("gallery").innerHTML = "عکسی وجود ندارد";
                 return;
             }
 
@@ -1282,13 +1359,9 @@
                     ${
                         row.status === 'دریافت شده'
                         ?
-                        `<span class="badge bg-success">
-                                                                                    ${row.status}
-                                                                                 </span>`
+                        `<span class="badge bg-success">${row.status}</span>`
                         :
-                        `<span class="badge bg-warning">
-                                                                                    ${row.status}
-                                                                                 </span>`
+                        `<span class="badge bg-warning">${row.status}</span>`
                     }
                 </td>
 
@@ -1338,11 +1411,11 @@
                 ${
                     row.materials.length
                         ? row.materials.map(material => `
-                                                                                                                <div>
-                                                                                                                    ${material.title}
-                                                                                                                    (${material.pivot.qty} ${material.unit})
-                                                                                                                </div>
-                                                                                                            `).join('')
+                            <div>
+                                ${material.title}
+                                (${material.pivot.qty} ${material.unit})
+                            </div>
+                        `).join('')
                         : '-'
                 }
             </td>
@@ -1361,8 +1434,21 @@
 
                 </button>
 
+                <button
+
+                    class="btn btn-outline-secondary btn-sm"
+
+                    onclick="openEditOperation(${row.id})"
+
+                >
+
+                    <i class="bi bi-pencil"></i>
+                    ویرایش
+
+                </button>
+
             </td>
-           
+
 
         </tr>
 
@@ -1434,7 +1520,7 @@
                 image: new ol.style.Circle({
                     radius: 8,
                     fill: new ol.style.Fill({
-                        color: '#dc3545', // یا هر رنگ دلخواه
+                        color: '#dc3545',
                     }),
                     stroke: new ol.style.Stroke({
                         color: '#fff',
@@ -1500,67 +1586,23 @@
         <table class="table table-bordered">
 
             <tr>
-
-                <th width="200">
-
-                    عملیات
-
-                </th>
-
-                <td>
-
-                    ${item.opencat.title}
-
-                </td>
-
+                <th width="200">عملیات</th>
+                <td>${item.opencat.title}</td>
             </tr>
 
             <tr>
-
-                <th>
-
-                    تاریخ
-
-                </th>
-
-                <td>
-
-                    ${item.date}
-
-                </td>
-
+                <th>تاریخ</th>
+                <td>${item.date}</td>
             </tr>
 
             <tr>
-
-                <th>
-
-                    وضعیت
-
-                </th>
-
-                <td>
-
-                    ${item.status}
-
-                </td>
-
+                <th>وضعیت</th>
+                <td>${item.status}</td>
             </tr>
 
             <tr>
-
-                <th>
-
-                    توضیحات
-
-                </th>
-
-                <td>
-
-                    ${item.description ?? '-'}
-
-                </td>
-
+                <th>توضیحات</th>
+                <td>${item.description ?? '-'}</td>
             </tr>
 
         </table>

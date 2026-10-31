@@ -3,8 +3,7 @@
 @section('title', 'لیست علمک ها')
 
 @section('content')
-
-<div class="container-fluid">
+ "container-fluid">
 
     <div class="card shadow-sm border-0">
 

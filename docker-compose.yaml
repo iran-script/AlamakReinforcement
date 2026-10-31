@@ -1,0 +1,71 @@
+services:
+  app:
+    build: {context: ., target: app}
+    restart: unless-stopped
+    env_file: ${APP_ENV_FILE:-.env.docker}
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: [app_storage:/var/www/storage]
+    networks: [alamak]
+
+  queue:
+    build: {context: ., target: app}
+    restart: unless-stopped
+    env_file: ${APP_ENV_FILE:-.env.docker}
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: [app_storage:/var/www/storage]
+    networks: [alamak]
+
+  nginx:
+    build: {context: ., target: web}
+    restart: unless-stopped
+    ports: ["${HTTP_PORT:-8090}:80"]
+    depends_on: [app, geoserver]
+    volumes: [app_storage:/var/www/storage:ro]
+    networks: [alamak]
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:?Set DB_DATABASE in .env.docker}
+      POSTGRES_USER: ${DB_USERNAME:?Set DB_USERNAME in .env.docker}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.docker}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [alamak]
+
+  geoserver:
+    image: docker.osgeo.org/geoserver:${GEOSERVER_VERSION:-2.28.2}
+    restart: unless-stopped
+    environment:
+      SKIP_DEMO_DATA: "true"
+      RUN_UNPRIVILEGED: "true"
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:?Set GEOSERVER_ADMIN_USER in .env.docker}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:?Set GEOSERVER_ADMIN_PASSWORD in .env.docker}
+      PROXY_BASE_URL: ${APP_URL:?Set APP_URL in .env.docker}/geoserver
+      POSTGRES_JNDI_ENABLED: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${DB_DATABASE:?Set DB_DATABASE in .env.docker}
+      POSTGRES_USERNAME: ${DB_USERNAME:?Set DB_USERNAME in .env.docker}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.docker}
+      EXTRA_JAVA_OPTS: ${GEOSERVER_JAVA_OPTS:--Xms512m -Xmx2g}
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: [geoserver_data:/opt/geoserver_data]
+    networks: [alamak]
+
+networks:
+  alamak:
+
+volumes:
+  app_storage:
+  postgres_data:
+  geoserver_data:

@@ -49,6 +49,25 @@ class RiserController extends Controller
      */
     public function details($id)
     {
+        /*
+        |--------------------------------------------------------------------------
+        | چک دسترسی مکانی — قبلاً این‌جا نبود، اضافه شد (هم برای وب هم موبایل).
+        | بدون این، هر کاربر لاگین‌شده با حدس زدن id می‌تونست جزئیات رایزر
+        | یک Zone دیگه رو ببینه.
+        |--------------------------------------------------------------------------
+        */
+        $currentUser = auth()->user();
+
+        if (! $currentUser) {
+            abort(401, 'ابتدا وارد حساب کاربری شوید.');
+        }
+
+        if (! Riser::visibleTo($currentUser)->where('id', $id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'دسترسی به این علمک نداری.'
+            ], 403);
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -61,10 +80,10 @@ class RiserController extends Controller
             ->selectRaw('ST_Asgeojson(ST_Transform(geom, 4326)) as wkt')
             ->where('id', $id)
             ->first();
-        
 
-       
-        
+
+
+
         $zone = DB::table('zone')
             ->whereRaw(
                 'ST_Contains(geom, ST_Transform(?,32639))',
@@ -234,7 +253,7 @@ class RiserController extends Controller
         $zoneFilter = '';
         $bindings = [];
 
-        if ($user->role !== 'superadmin') {
+        if (! $user->hasRole('superadmin')) {
             if (!$user->zone_id) {
                 return response()->json([]);
             }
@@ -266,7 +285,7 @@ class RiserController extends Controller
         FROM riser t
 
         LEFT JOIN LATERAL (
-            SELECT 
+            SELECT
                 o.id,
                 o.user_id,
                 o.operation_date
@@ -276,7 +295,7 @@ class RiserController extends Controller
             LIMIT 1
         ) op ON true
 
-        LEFT JOIN users tech 
+        LEFT JOIN users tech
             ON tech.id = op.user_id
 
         LEFT JOIN LATERAL (

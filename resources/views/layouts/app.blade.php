@@ -9,7 +9,6 @@
 
     <link href="{{ url('css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
-    <link href="{{ url('css/boot-icon.css') }}" rel="stylesheet">
     <script src="{{ url('js/bootstrap.js') }}"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">

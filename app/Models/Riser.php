@@ -3,12 +3,24 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 use App\Models\User;
 
 class Riser extends Model
 {
     protected $table = 'riser';
 
+    protected $fillable = [
+        'r_giscode',
+        'giscode',
+        'status',
+    ];
+
+    /**
+     * فیکس شد:
+     * ۱) use Illuminate\Database\Eloquent\Builder اضافه شد (قبلاً نبود => Fatal error موقع صدا زدن scope)
+     * ۲) جدول zones (جمع) به zone (مفرد) اصلاح شد — طبق Zone::$table و RiserController@data
+     */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->isSuperAdmin()) {
@@ -22,17 +34,11 @@ class Riser extends Model
         return $query->whereRaw("
             ST_Intersects(
                 riser.geom,
-                (
-                    SELECT geom
-                    FROM zones
-                    WHERE id = ?
-                )
+                (SELECT geom FROM zone WHERE id = ?)
             )
         ", [$user->zone_id]);
     }
 
-    // app/Models/Riser.php
-    // app/Models/Riser.php  — این متدها را اضافه کن
     public function workflowTransfers()
     {
         return $this->hasMany(WorkflowTransfer::class);

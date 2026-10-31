@@ -49,7 +49,7 @@ class TileController extends Controller
         $zoneFilter = '';
         $bindings = [];
 
-        if ($user->role !== 'superadmin') {
+        if (! $user->hasRole('superadmin')) {
             if (!$user->zone_id) {
                 return response('', 204);
             }

@@ -8,6 +8,10 @@ use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use App\Services\MenuService;
+use App\Models\Operation;
+use App\Models\Zone;
+use App\Policies\OperationPolicy;
+use App\Policies\ZonePolicy;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,6 +29,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(Operation::class, OperationPolicy::class);
+        Gate::policy(Zone::class, ZonePolicy::class);
+
         Gate::before(function (User $user, string $ability) {
             return $user->hasRole('superadmin') ? true : null;
         });

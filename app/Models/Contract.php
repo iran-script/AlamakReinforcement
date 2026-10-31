@@ -13,12 +13,10 @@ class Contract extends Model
         'creator_id',
     ];
 
-
     public function supervisor()
     {
         return $this->belongsTo(User::class, 'supervisor_id');
     }
-
 
     public function creator()
     {
@@ -33,5 +31,10 @@ class Contract extends Model
     public function operations()
     {
         return $this->hasMany(Operation::class);
+    }
+
+    public function workOrders()
+    {
+        return $this->hasMany(WorkOrder::class);
     }
 }

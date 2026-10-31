@@ -7,15 +7,14 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use App\Models\Zone;
-use Spatie\Permission\Traits\HasRoles;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
+
     use HasRoles;
 
     /**
@@ -24,6 +23,7 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
+        'organization_id',
         'name',
         'email',
         'password',
@@ -31,7 +31,7 @@ class User extends Authenticatable
         'zone_id',
         'role_id',
         'group_user_id',
-        'contract_id'
+        'contract_id',
     ];
 
     /**
@@ -64,21 +64,16 @@ class User extends Authenticatable
 
     public function isSuperAdmin(): bool
     {
-        return $this->role === 'superadmin';
+        return $this->hasRole('superadmin');
     }
-
-
 
     public function hasPermission($permission)
     {
-        if ($this->role && $this->role->name === 'superadmin') {
+        if ($this->hasRole('superadmin')) {
             return true;
         }
-        return $this->role
-            && $this->role
-            ->permissions()
-            ->where('name', $permission)
-            ->exists();
+
+        return $this->can($permission);
     }
 
     public function operationsToApprove()
@@ -90,9 +85,10 @@ class User extends Authenticatable
             'status',
             'comment',
             'approved_at',
-            'order'
+            'order',
         ])->withTimestamps();
     }
+
     public function groupUser()
     {
         return $this->belongsTo(GroupUser::class, 'group_user_id');
@@ -113,5 +109,42 @@ class User extends Authenticatable
     public function contract()
     {
         return $this->belongsTo(Contract::class);
+    }
+
+    public function organization()
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
+    public function spatialScopes()
+    {
+        return $this->belongsToMany(SpatialScope::class, 'user_spatial_scopes')
+            ->withPivot('access_level')
+            ->withTimestamps();
+    }
+
+    public function requestedWorkOrders()
+    {
+        return $this->hasMany(WorkOrder::class, 'requester_id');
+    }
+
+    public function createdWorkOrders()
+    {
+        return $this->hasMany(WorkOrder::class, 'created_by');
+    }
+
+    public function assignedWorkOrders()
+    {
+        return $this->hasMany(WorkOrder::class, 'assigned_to');
+    }
+
+    public function startedWorkflowInstances()
+    {
+        return $this->hasMany(WorkflowInstance::class, 'started_by');
+    }
+
+    public function workflowTasks()
+    {
+        return $this->hasMany(WorkflowTask::class, 'assigned_to');
     }
 }

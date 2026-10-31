@@ -7,6 +7,10 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
+/**
+ * نسخه‌ی موازی AuthController وب — برای موبایل، به‌جای session، توکن Sanctum صادر می‌کنه.
+ * به فایل app/Http/Controllers/AuthController.php (نسخه‌ی وب) کاری نداره.
+ */
 class AuthController extends Controller
 {
     /**

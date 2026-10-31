@@ -15,7 +15,7 @@ class CheckPermission
             abort(401);
         }
 
-        if ($user->roles && $user->roles->name === 'superadmin') {
+        if ($user->hasRole('superadmin')) {
             return $next($request);
         }
 
