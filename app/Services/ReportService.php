@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Operation;
+use App\Models\Riser;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
@@ -14,13 +15,6 @@ class ReportService
         $user = $request->user();
 
 
-        if (!$user->hasRole('superadmin')) {
-
-            $request->merge([
-                'zone' => $user->zone_id
-            ]);
-        }
-
         $query = Operation::with([
 
             'riser',
@@ -31,6 +25,10 @@ class ReportService
             'contract',
 
         ]);
+
+        if (! $user->hasRole('superadmin')) {
+            $query->whereHas('riser', fn ($riser) => $riser->visibleTo($user));
+        }
 
 
         $this->filters($query, $request);
@@ -60,6 +58,10 @@ class ReportService
             'contractorChart' => $this->contractorChart($operations),
 
             'materials' => $this->materials($operations),
+
+            // Phase 2 authoritative material report: quantity grouped by unit.
+            // Legacy monetary keys remain for backward compatibility only.
+            'materialUsage' => $this->materialUsage($operations),
 
             'supervisors' => $this->supervisors($operations),
 
@@ -538,6 +540,27 @@ class ReportService
         }
 
 
+
+        return array_values($data);
+    }
+
+    /** @return array<int, array{material_id:int,title:string,unit:string,qty:numeric}> */
+    private function materialUsage($operations): array
+    {
+        $data = [];
+
+        foreach ($operations as $operation) {
+            foreach ($operation->operationMaterial as $material) {
+                $key = $material->id.'|'.(string) $material->unit;
+                $data[$key] ??= [
+                    'material_id' => $material->id,
+                    'title' => $material->title,
+                    'unit' => $material->unit,
+                    'qty' => 0,
+                ];
+                $data[$key]['qty'] += (float) $material->pivot->qty;
+            }
+        }
 
         return array_values($data);
     }

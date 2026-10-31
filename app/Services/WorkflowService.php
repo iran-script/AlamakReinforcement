@@ -48,6 +48,13 @@ class WorkflowService
      */
     public function submitOperationForLeakCheck(Operation $operation, User $technicalInspector, ?string $comment = null): WorkflowTransfer
     {
+        $operation->supervisors()->syncWithoutDetaching([
+            $technicalInspector->id => [
+                'status' => 'pending',
+                'order' => 1,
+            ],
+        ]);
+
         WorkflowTransfer::query()
             ->where('riser_id', $operation->riser_id)
             ->where('user_id_to', $operation->user_id)
