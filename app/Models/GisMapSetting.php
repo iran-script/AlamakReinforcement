@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GisMapSetting extends Model
 {
-    protected $fillable = ['organization_id', 'base_tile_url', 'base_tile_attribution', 'is_active', 'updated_by'];
+    protected $fillable = [
+        'organization_id', 'name', 'service_type', 'base_tile_url', 'style_url',
+        'base_tile_attribution', 'min_zoom', 'max_zoom', 'is_active', 'updated_by',
+    ];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'min_zoom' => 'integer', 'max_zoom' => 'integer'];
     }
 
     public function organization(): BelongsTo

@@ -14,6 +14,7 @@
     </h4>
 
 
+    @can('create', App\Models\User::class)
     <a href="{{ route('users.create') }}" class="btn btn-primary">
 
         <i class="bi bi-person-plus"></i>
@@ -21,6 +22,7 @@
         افزودن کاربر
 
     </a>
+    @endcan
 
 </div>
 
@@ -59,6 +61,16 @@
 <div class="card-box">
 
 <div class="card-body p-3">
+
+<form method="GET" action="{{ route('users.index') }}" class="row g-2 mb-3">
+    <div class="col-md-5">
+        <input type="search" name="search" value="{{ request('search') }}" class="form-control" placeholder="جست‌وجو با نام یا Username">
+    </div>
+    <div class="col-auto"><button type="submit" class="btn btn-outline-primary">جست‌وجو</button></div>
+    @if(request()->filled('search'))
+        <div class="col-auto"><a href="{{ route('users.index') }}" class="btn btn-outline-secondary">پاک‌کردن</a></div>
+    @endif
+</form>
 
 
 <div class="table-responsive">
@@ -214,6 +226,7 @@
 <td class="text-nowrap">
 
 
+@can('update', $user)
 <a href="{{ route('users.edit',$user) }}"
    class="btn btn-sm btn-warning"
    title="ویرایش کاربر"
@@ -222,12 +235,13 @@
 <i class="bi bi-pencil-square"></i>
 
 </a>
+@endcan
 
 
 
 
 
-@if($user->id !== auth()->id())
+@can('delete', $user)
 
 
 <form method="POST"
@@ -256,7 +270,7 @@
 </form>
 
 
-@endif
+@endcan
 
 
 

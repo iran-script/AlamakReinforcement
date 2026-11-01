@@ -10,12 +10,17 @@ class OperationImage extends Model
     protected $table = 'operation_image';
 
     protected $fillable = [
-        'operation_id', 'path', 'original_name', 'uploaded_by','riser_id','type'
+        'operation_id', 'maintenance_case_id', 'path', 'original_name', 'uploaded_by','riser_id','type'
     ];
 
     public function operation()
     {
         return $this->belongsTo(Operation::class);
+    }
+
+    public function maintenanceCase()
+    {
+        return $this->belongsTo(MaintenanceCase::class);
     }
 }
 

@@ -1,116 +1,32 @@
 @php
-
-    $canView = empty($menu->permission) 
-        || (auth()->check() && auth()->user()->can($menu->permission));
-
-
-    $hasVisibleChildren = $menu->children
-        ->filter(function($child){
-
-            return empty($child->permission)
-                || (auth()->check() && auth()->user()->can($child->permission));
-
-        })
-        ->count() > 0;
-
-
+    $hasChildren = $menu->children->isNotEmpty();
+    $isGroupActive = $hasChildren && $menu->hasActiveDescendant();
 @endphp
 
-
-@if($canView || $hasVisibleChildren)
-
-
-    @php
-        $hasChildren = $menu->children->count() > 0;
-    @endphp
-
-
-    @if($hasChildren)
-
-
-        <div class="menu-group">
-
-
-            <a href="#"
-               class="menu-toggle"
-               data-menu="{{ $menu->id }}">
-
-
-                <div>
-
-
-                    @if($menu->icon)
-
-                        <i class="{{ $menu->icon }}"></i>
-
-                    @endif
-
-
-                    <span class="text">
-                        {{ $menu->title }}
-                    </span>
-
-
-                </div>
-
-
-                <i class="bi bi-chevron-down arrow"></i>
-
-
-            </a>
-
-
-
-            <div
-                id="submenu{{ $menu->id }}"
-                class="submenu">
-
-
-                @foreach($menu->children as $child)
-
-
-                    @include('menus.item',['menu'=>$child])
-
-
-                @endforeach
-
-
-            </div>
-
-
-        </div>
-
-
-    @else
-
-
-
-        <a
-            href="{{ route($menu->route) }}"
-            class="{{ $menu->isActive() ? 'active-menu' : '' }}">
-
-
-
-            @if($menu->icon)
-
-                <i class="{{ $menu->icon }}"></i>
-
-            @endif
-
-
-
-            <span class="text">
-
-                {{ $menu->title }}
-
+@if ($hasChildren)
+    <section class="menu-group {{ $isGroupActive ? 'is-active' : '' }}">
+        <a href="#"
+           class="menu-toggle {{ $isGroupActive ? 'open' : '' }}"
+           data-menu="{{ $menu->route }}"
+           aria-controls="submenu{{ $menu->id }}"
+           aria-expanded="{{ $isGroupActive ? 'true' : 'false' }}">
+            <span class="menu-label">
+                @if ($menu->icon)<i class="{{ $menu->icon }}" aria-hidden="true"></i>@endif
+                <span class="text">{{ $menu->title }}</span>
             </span>
-
-
+            <i class="bi bi-chevron-down arrow" aria-hidden="true"></i>
         </a>
-
-
-
-    @endif
-
-
+        <div id="submenu{{ $menu->id }}" class="submenu {{ $isGroupActive ? 'show' : '' }}">
+            @foreach ($menu->children as $child)
+                @include('menus.item', ['menu' => $child])
+            @endforeach
+        </div>
+    </section>
+@elseif ($menu->route && \Illuminate\Support\Facades\Route::has($menu->route))
+    <a href="{{ route($menu->route) }}"
+       class="menu-link {{ $menu->isActive() ? 'active-menu' : '' }}"
+       @if ($menu->isActive()) aria-current="page" @endif>
+        @if ($menu->icon)<i class="{{ $menu->icon }}" aria-hidden="true"></i>@endif
+        <span class="text">{{ $menu->title }}</span>
+    </a>
 @endif

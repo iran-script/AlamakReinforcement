@@ -7,7 +7,6 @@
 
     <link href="{{ url('css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">
 
     <style>
         :root {

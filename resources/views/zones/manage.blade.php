@@ -101,6 +101,12 @@
         <h4><i class="bi bi-bounding-box-circles text-primary"></i> مدیریت زون‌ها</h4>
     </div>
 
+    @if($bossZoneBoundaryUnavailable)
+        <div class="alert alert-warning">
+            محدودهٔ جغرافیایی ناحیهٔ اصلی Boss در مدل داده تعریف نشده است؛ برای جلوگیری از ساخت Zone نامحدود، ایجاد و ویرایش هندسه غیرفعال است.
+        </div>
+    @endif
+
     <div class="zone-page">
 
         <div class="zone-sidebar">
@@ -113,17 +119,17 @@
             <input type="hidden" id="selectedZoneId">
 
             <div class="d-grid gap-2 mb-4">
-                <button class="btn btn-primary" id="saveZoneBtn">
+                <button class="btn btn-primary" id="saveZoneBtn" @disabled(! $canCreateZones && ! $canEditZones)>
                     <i class="bi bi-check-circle"></i>
                     ذخیره زون
                 </button>
 
-                <button class="btn btn-warning" id="editZoneBtn" disabled>
+                <button class="btn btn-warning" id="editZoneBtn" disabled @disabled(! $canEditZones)>
                     <i class="bi bi-pencil"></i>
                     ویرایش هندسه
                 </button>
 
-                <button class="btn btn-danger" id="deleteZoneBtn" disabled>
+                <button class="btn btn-danger" id="deleteZoneBtn" disabled @disabled(! $canDeleteZones)>
                     <i class="bi bi-trash"></i>
                     حذف زون
                 </button>
@@ -146,7 +152,7 @@
         <div class="zone-map-container">
 
             <div class="map-tools">
-                <button class="btn btn-success btn-sm" id="drawPolygonBtn">
+                <button class="btn btn-success btn-sm" id="drawPolygonBtn" @disabled(! $canCreateZones)>
                     <i class="bi bi-vector-pen"></i>
                     ترسیم زون جدید
                 </button>
@@ -174,6 +180,9 @@
             };
 
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            const canCreateZones = @json($canCreateZones);
+            const canEditZones = @json($canEditZones);
+            const canDeleteZones = @json($canDeleteZones);
 
             let selectedFeature = null;
             let drawInteraction = null;
@@ -348,8 +357,8 @@
                 document.getElementById('selectedZoneId').value = zoneId;
                 document.getElementById('zoneName').value = zoneName;
 
-                document.getElementById('editZoneBtn').disabled = false;
-                document.getElementById('deleteZoneBtn').disabled = false;
+                document.getElementById('editZoneBtn').disabled = !canEditZones;
+                document.getElementById('deleteZoneBtn').disabled = !canDeleteZones;
 
                 document.querySelectorAll('.zone-item').forEach(item => {
                     item.classList.toggle(
@@ -389,6 +398,7 @@
             }
 
             function startDraw() {
+                if (!canCreateZones) return;
                 clearSelection();
 
                 map.un('singleclick', selectClickHandler);
@@ -429,6 +439,7 @@
             }
 
             function startModifyInteraction() {
+                if (!canEditZones) return;
                 if (!selectedFeature) {
                     alert('ابتدا یک زون را انتخاب کن.');
                     return;
@@ -465,6 +476,7 @@
             function saveZone() {
                 const name = document.getElementById('zoneName').value.trim();
                 const zoneId = document.getElementById('selectedZoneId').value;
+                if (zoneId ? !canEditZones : !canCreateZones) return;
 
                 if (!name) {
                     alert('نام زون را وارد کن.');
@@ -523,6 +535,7 @@
             }
 
             function deleteZone() {
+                if (!canDeleteZones) return;
                 const zoneId = document.getElementById('selectedZoneId').value;
 
                 if (!zoneId) {

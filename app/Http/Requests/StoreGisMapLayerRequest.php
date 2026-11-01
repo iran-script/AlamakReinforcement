@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\AccessPolicyService;
+use App\Services\MapServiceUrlValidator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,7 +15,7 @@ class StoreGisMapLayerRequest extends FormRequest
             && app(AccessPolicyService::class)->can($this->user(), 'gis_settings', 'configure');
     }
 
-    public function rules(): array
+    public function rules(MapServiceUrlValidator $urls): array
     {
         $organizationId = $this->user()?->hasRole('superadmin') ? null : $this->user()?->organization_id;
 
@@ -32,18 +33,8 @@ class StoreGisMapLayerRequest extends FormRequest
             ],
             'title' => ['required', 'string', 'max:200'],
             'type' => ['required', Rule::in(['vector_tile', 'wms'])],
-            'endpoint' => ['required', 'string', 'max:1000', function (string $attribute, mixed $value, \Closure $fail): void {
-                $internal = str_starts_with($value, '/') && ! str_starts_with($value, '//');
-                $scheme = strtolower((string) parse_url($value, PHP_URL_SCHEME));
-                $remote = filter_var($value, FILTER_VALIDATE_URL) !== false && in_array($scheme, ['http', 'https'], true);
-
-                if (! $internal && ! $remote) {
-                    $fail('آدرس سرویس باید یک نشانی HTTP/HTTPS یا مسیر داخلی معتبر باشد.');
-                }
-
-                if ($this->input('type') === 'vector_tile' && (! str_contains($value, '{z}') || ! str_contains($value, '{x}') || ! str_contains($value, '{y}'))) {
-                    $fail('آدرس Vector Tile باید شامل {z}، {x} و {y} باشد.');
-                }
+            'endpoint' => ['required', 'string', 'max:1000', function (string $attribute, mixed $value, \Closure $fail) use ($urls): void {
+                if ($error = $urls->error((string) $value, $this->input('type') === 'vector_tile')) $fail($error);
             }],
             'wms_layers' => ['nullable', 'required_if:type,wms', 'string', 'max:500', 'regex:/^[A-Za-z0-9_.:,\-]+$/'],
             'format' => ['nullable', Rule::in(['image/png', 'image/jpeg', 'image/webp'])],

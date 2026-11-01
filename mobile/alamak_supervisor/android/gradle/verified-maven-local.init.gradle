@@ -1,0 +1,64 @@
+// Reversible offline aid for this project and Flutter's included Gradle build.
+// It adds the standard Maven Local before official repositories; no Flutter SDK files change.
+def localRepo = new File(System.getProperty('user.home'), '.m2/repository').toURI()
+def portableRepo = new File(System.getProperty('user.dir'), 'maven-offline').toURI()
+def alibabaGoogleRepo = 'https://maven.aliyun.com/repository/google'
+def alibabaCentralRepo = 'https://maven.aliyun.com/repository/central'
+def alibabaPluginRepo = 'https://maven.aliyun.com/repository/gradle-plugin'
+
+gradle.beforeSettings { settings ->
+    // Use the official plugin implementation coordinates directly. The marker POMs are
+    // not always present in an offline Gradle cache, while the corresponding Maven
+    // implementation artifacts are already verified in the local repository.
+    settings.pluginManagement.resolutionStrategy.eachPlugin { request ->
+        if (request.requested.id.id == 'com.android.application') {
+            request.useModule("com.android.tools.build:gradle:${request.requested.version}")
+        } else if (request.requested.id.id == 'org.jetbrains.kotlin.android') {
+            request.useModule("org.jetbrains.kotlin:kotlin-gradle-plugin:${request.requested.version}")
+        }
+    }
+
+    settings.pluginManagement.repositories.maven {
+        name = 'verifiedPortableMaven'
+        url = portableRepo
+    }
+    settings.pluginManagement.repositories.maven {
+        name = 'verifiedMavenLocal'
+        url = localRepo
+    }
+    settings.pluginManagement.repositories.maven { name = 'alibabaGoogle'; url = alibabaGoogleRepo }
+    settings.pluginManagement.repositories.maven { name = 'alibabaCentral'; url = alibabaCentralRepo }
+    settings.pluginManagement.repositories.maven { name = 'alibabaGradlePlugin'; url = alibabaPluginRepo }
+    settings.pluginManagement.repositories.google()
+    settings.pluginManagement.repositories.mavenCentral()
+    settings.pluginManagement.repositories.gradlePluginPortal()
+
+    settings.dependencyResolutionManagement.repositories.maven {
+        name = 'verifiedPortableMaven'
+        url = portableRepo
+    }
+    settings.dependencyResolutionManagement.repositories.maven {
+        name = 'verifiedMavenLocal'
+        url = localRepo
+    }
+    settings.dependencyResolutionManagement.repositories.maven { name = 'alibabaGoogle'; url = alibabaGoogleRepo }
+    settings.dependencyResolutionManagement.repositories.maven { name = 'alibabaCentral'; url = alibabaCentralRepo }
+    settings.dependencyResolutionManagement.repositories.maven { name = 'alibabaGradlePlugin'; url = alibabaPluginRepo }
+    settings.dependencyResolutionManagement.repositories.google()
+    settings.dependencyResolutionManagement.repositories.mavenCentral()
+}
+
+// Some Flutter plugins use their own buildscript repositories instead of settings repos.
+gradle.beforeProject { project ->
+    project.buildscript.repositories.maven {
+        name = 'verifiedPortableMavenBuildscript'
+        url = portableRepo
+    }
+    project.buildscript.repositories.maven {
+        name = 'verifiedMavenLocalBuildscript'
+        url = localRepo
+    }
+    project.buildscript.repositories.maven { name = 'alibabaGoogleBuildscript'; url = alibabaGoogleRepo }
+    project.buildscript.repositories.maven { name = 'alibabaCentralBuildscript'; url = alibabaCentralRepo }
+    project.buildscript.repositories.maven { name = 'alibabaGradlePluginBuildscript'; url = alibabaPluginRepo }
+}

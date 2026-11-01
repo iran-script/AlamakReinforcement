@@ -16,17 +16,21 @@ class ZonePolicy
     public function create(User $user): bool
     {
         return $user->hasRole('superadmin')
-            || ($user->can('zone.create') && ($user->hasRole('boss') || $user->organization_id !== null));
+            || (! $user->hasRole('boss') && $user->can('zone.create') && $user->organization_id !== null);
     }
 
     public function update(User $user, Zone $zone): bool
     {
-        return $this->owns($user, $zone) && ($user->hasRole('superadmin') || $user->can('zone.edit'));
+        return ! $user->hasRole('boss')
+            && $this->owns($user, $zone)
+            && ($user->hasRole('superadmin') || $user->can('zone.edit'));
     }
 
     public function delete(User $user, Zone $zone): bool
     {
-        return $this->owns($user, $zone) && ($user->hasRole('superadmin') || $user->can('zone.delete'));
+        return ! $user->hasRole('boss')
+            && $this->owns($user, $zone)
+            && ($user->hasRole('superadmin') || $user->can('zone.delete'));
     }
 
     private function owns(User $user, Zone $zone): bool

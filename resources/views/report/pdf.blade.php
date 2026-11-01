@@ -382,8 +382,10 @@
                     </td>
                     <td class="stats-cell-gap"></td>
                     <td>
+                        @if(($data['dataset'] ?? 'operations') !== 'maintenance_cases')
                         <div class="stat-number">{{ number_format($data['cards']['total_cost'] ?? 0) }}</div>
                         <div class="stat-label">هزینه کل (ریال)</div>
+                        @endif
                     </td>
                 </tr>
             </table>
@@ -392,6 +394,19 @@
 
 
     {{-- ===================== داشبورد: دونات + روند ===================== --}}
+    @if(($data['dataset'] ?? 'operations') === 'maintenance_cases')
+    <div class="section-head"><span class="tag"></span><span class="label">فهرست پرونده‌های تعمیر</span></div>
+    <table class="main-table">
+        <thead><tr><th>#</th>@foreach($data['columns'] ?? [] as $column)<th>{{ $column['label'] }}</th>@endforeach</tr></thead>
+        <tbody>
+            @forelse($data['table'] ?? [] as $index => $row)
+                <tr class="{{ $index % 2 == 1 ? 'row-even' : '' }}"><td>{{ $index + 1 }}</td>@foreach($data['columns'] ?? [] as $column)<td>{{ $row[$column['key']] ?? '-' }}</td>@endforeach</tr>
+            @empty
+                <tr class="empty-row"><td colspan="{{ count($data['columns'] ?? []) + 1 }}">داده‌ای برای نمایش وجود ندارد</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+    @else
     @php
         // پالت رنگ برای دسته‌های نوع عملیات (به تعداد دلخواه قابل تکرار)
         $palette = ['#2FA787', '#E8963C', '#4E7FBF', '#C9639C', '#6BC0D9', '#B5730A', '#8E6BC0', '#C9D3E0'];
@@ -427,7 +442,7 @@
         $maxByUser = max($byUser->max() ?? 0, 1);
 
         // لیدربورد مصالح — ۵ قلم پرمصرف‌تر (بر اساس تعداد/مقدار مصرفی)
-        $topMaterials = collect($data['materials'] ?? [])
+        $topMaterials = collect($data['materialUsage'] ?? [])
             ->sortByDesc('qty')
             ->take(5)
             ->values();
@@ -436,12 +451,12 @@
 
         // ===== مصرف مصالح به تفکیک علمک (رایزر) =====
         $riserMaterialUsage = collect($data['table'] ?? [])
-            ->groupBy(fn($row) => $row['riser'] ?? 'نامشخص')
-            ->map(function ($rows) {
-                return collect($rows)
-                    ->flatMap(fn($row) => $row['materials'] ?? [])
-                    ->sum(fn($m) => (float) ($m['qty'] ?? 0));
-            })
+            ->flatMap(fn($row) => collect($row['materials'] ?? [])->map(fn($m) => [
+                'key' => ($row['riser'] ?? '—').' / '.($m['unit'] ?? 'واحد نامشخص'),
+                'qty' => (float) ($m['qty'] ?? 0),
+            ]))
+            ->groupBy('key')
+            ->map(fn($items) => $items->sum('qty'))
             ->filter(fn($qty) => $qty > 0)
             ->sortDesc();
     @endphp
@@ -535,46 +550,25 @@
     </div>
 
     <table class="main-table">
-        <thead>
-            <tr>
-                <th width="4%">#</th>
-                <th>رایزر</th>
-                <th>نوع عملیات</th>
-                <th>قرارداد</th>
-                <th>تاریخ</th>
-                <th>وضعیت</th>
-                <th>اولویت</th>
-                <th>کاربر</th>
-                <th>هزینه</th>
-            </tr>
-        </thead>
-
+        <thead><tr><th>#</th>@foreach($data['columns'] ?? [] as $column)<th>{{ $column['label'] }}</th>@endforeach</tr></thead>
         <tbody>
             @forelse($data['table'] ?? [] as $index => $row)
                 <tr class="{{ $index % 2 == 1 ? 'row-even' : '' }}">
                     <td>{{ $index + 1 }}</td>
-                    <td>{{ $row['riser'] ?? '-' }}</td>
-                    <td>{{ $row['operation'] ?? '-' }}</td>
-                    <td>{{ $row['contract_id'] ?? '-' }}</td>
-                    <td>{{ $row['date'] ?? '-' }}</td>
-                    <td>{{ $row['status'] ?? '-' }}</td>
-                    <td>{{ $row['priority'] ?? '-' }}</td>
-                    <td>{{ $row['user'] ?? '-' }}</td>
-                    <td>{{ number_format($row['cost'] ?? 0) }}</td>
-                </tr>
-
-                @if (!empty($row['materials']))
-                    <tr class="material-line">
-                        <td colspan="9">
-                            <span class="material-label">مصالح: </span>
-                            {{ collect($row['materials'])->map(fn($m) => "{$m['title']} ({$m['qty']} {$m['unit']})")->implode('،  ') }}
+                    @foreach($data['columns'] ?? [] as $column)
+                        <td>
+                            @if($column['key'] === 'materials')
+                                {{ collect($row['materials'] ?? [])->map(fn($m) => "{$m['title']} ({$m['qty']} {$m['unit']})")->implode('، ') }}
+                            @elseif($column['key'] === 'cost')
+                                {{ number_format($row['cost'] ?? 0) }}
+                            @else
+                                {{ $row[$column['key']] ?? '-' }}
+                            @endif
                         </td>
-                    </tr>
-                @endif
-            @empty
-                <tr class="empty-row">
-                    <td colspan="9">هیچ عملیاتی برای این بازه یافت نشد</td>
+                    @endforeach
                 </tr>
+            @empty
+                <tr class="empty-row"><td colspan="{{ count($data['columns'] ?? []) + 1 }}">برای این فیلتر داده‌ای یافت نشد.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -634,5 +628,6 @@
         </tbody>
     </table>
 
+    @endif
 </body>
 </html>

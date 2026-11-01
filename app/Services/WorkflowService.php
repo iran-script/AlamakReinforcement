@@ -123,7 +123,7 @@ class WorkflowService
 
         if (!empty($zoneIds)) {
 
-            $inspector = User::role('supervisor')
+            $inspector = User::whereHas('roles', fn ($roles) => $roles->where('name', 'supervisor')->where('guard_name', 'web'))
                 ->whereIn('zone_id', $zoneIds)
                 ->first();
 
@@ -133,14 +133,14 @@ class WorkflowService
         }
 
         // اگر ناظر زون پیدا نشد، یک SuperAdmin برگردان
-        $superAdmin = User::role('superadmin')->first();
+        $superAdmin = User::whereHas('roles', fn ($roles) => $roles->where('name', 'superadmin')->where('guard_name', 'web'))->first();
 
         if ($superAdmin) {
             return $superAdmin;
         }
 
         // در نهایت ناظر سراسری (بدون زون)
-        return User::role('supervisor')
+        return User::whereHas('roles', fn ($roles) => $roles->where('name', 'supervisor')->where('guard_name', 'web'))
             ->whereNull('zone_id')
             ->first();
     }

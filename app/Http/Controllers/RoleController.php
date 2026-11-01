@@ -26,9 +26,12 @@ class RoleController extends Controller
             'name' => 'required|unique:roles,name',
         ]);
 
-        Role::create([
+        $role = Role::create([
             'name' => $request->name,
             'guard_name' => 'web'
+        ]);
+        app(\App\Services\AuditLogger::class)->record('role.created', $role, null, [
+            'id' => $role->id, 'name' => $role->name, 'guard_name' => $role->guard_name,
         ]);
 
         return redirect()
@@ -56,6 +59,7 @@ class RoleController extends Controller
             'name' => 'required|unique:roles,name,' . $role->id,
         ]);
 
+        $before = ['id' => $role->id, 'name' => $role->name, 'permissions' => $role->permissions()->pluck('name')->sort()->values()->all()];
         $role->update([
             'name' => $request->name,
         ]);
@@ -63,6 +67,10 @@ class RoleController extends Controller
         $role->syncPermissions(
             $request->permissions ?? []
         );
+        app(\App\Services\AuditLogger::class)->record('role.updated', $role, $before, [
+            'id' => $role->id, 'name' => $role->name,
+            'permissions' => $role->permissions()->pluck('name')->sort()->values()->all(),
+        ]);
 
         return redirect()
             ->route('roles.index')
@@ -75,6 +83,10 @@ class RoleController extends Controller
             return back()->with('error', 'حذف SuperAdmin مجاز نیست.');
         }
 
+        app(\App\Services\AuditLogger::class)->record('role.deleted', $role, [
+            'id' => $role->id, 'name' => $role->name,
+            'permissions' => $role->permissions()->pluck('name')->sort()->values()->all(),
+        ], null);
         $role->delete();
 
         return back()->with('success', 'نقش حذف شد.');

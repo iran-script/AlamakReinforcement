@@ -11,10 +11,6 @@
     <link href="{{ url('css/bootstrap-icon.css') }}" rel="stylesheet">
     <script src="{{ url('js/bootstrap.js') }}"></script>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-
     <script src="{{ asset('js/sidebar.js') }}"></script>
 
     <style>
@@ -70,7 +66,7 @@
             --danger: #D64545;
             --danger-soft: #FDECEC;
 
-            --font-body: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+            --font-body: 'Segoe UI', Tahoma, Arial, sans-serif;
             --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 
             --radius: 12px;
@@ -181,6 +177,8 @@
         #sidebar {
             width: var(--sidebar-w);
             height: 100vh;
+            display: flex;
+            flex-direction: column;
             background: var(--surface);
             border-inline-start: 1px solid var(--border);
             color: var(--text);
@@ -344,6 +342,18 @@
         .menu-toggle {
             cursor: pointer;
             justify-content: space-between !important;
+        }
+
+        .menu-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .menu-group.is-active > .menu-toggle {
+            color: var(--primary);
+            background: var(--primary-soft);
         }
 
         .submenu {
@@ -1132,34 +1142,6 @@
 
             }
 
-
-        });
-    </script>
-
-    <script>
-        document.querySelectorAll('.menu-toggle').forEach(function(item) {
-
-            item.addEventListener('click', function(e) {
-
-                e.preventDefault();
-
-                let id = this.dataset.menu;
-
-                let submenu = document.getElementById('submenu' + id);
-
-                this.classList.toggle('open');
-
-                if (submenu.style.display == "block") {
-
-                    submenu.style.display = "none";
-
-                } else {
-
-                    submenu.style.display = "block";
-
-                }
-
-            });
 
         });
     </script>

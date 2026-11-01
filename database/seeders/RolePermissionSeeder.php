@@ -39,6 +39,9 @@ class RolePermissionSeeder extends Seeder
             'operation.edit',
             'operation.delete',
             'operation.approve',
+            'maintenance.case.create',
+            'maintenance.case.view',
+            'audit.view',
 
             'operation-category.view',
             'operation-category.create',
@@ -59,6 +62,13 @@ class RolePermissionSeeder extends Seeder
             'contractor.create',
             'contractor.edit',
             'contractor.delete',
+
+            'contract.view',
+            'contract.create',
+            'contract.edit',
+            'contract.delete',
+
+            'groupuser.view',
 
             'report.view',
 
@@ -87,6 +97,8 @@ class RolePermissionSeeder extends Seeder
         */
 
         $superAdmin = Role::findOrCreate('superadmin', 'web');
+        $boss = Role::findOrCreate('boss', 'web');
+        $supervisor = Role::findOrCreate('supervisor', 'web');
 
         Role::findOrCreate('admin', 'web');
 
@@ -102,6 +114,25 @@ class RolePermissionSeeder extends Seeder
 
         $superAdmin->syncPermissions(
             Permission::all()
+        );
+
+        $boss->syncPermissions(
+            Permission::query()
+                ->whereIn('name', [
+                    'user.view', 'user.create', 'user.edit', 'zone.view',
+                    'dashboard.view', 'map.view', 'riser.view', 'operation.view',
+                    'operation.edit', 'operation.approve', 'maintenance.case.view', 'report.view',
+                ])
+                ->where('guard_name', 'web')
+                ->get()
+        );
+
+        $supervisor->syncPermissions(
+            Permission::query()->whereIn('name', [
+                'dashboard.view', 'map.view', 'riser.view', 'operation.view',
+                'operation.create', 'operation.approve', 'report.view',
+                'maintenance.case.create', 'maintenance.case.view',
+            ])->where('guard_name', 'web')->get()
         );
 
         /*

@@ -1,86 +1,35 @@
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener('DOMContentLoaded', () => {
+    const toggles = [...document.querySelectorAll('#sidebar .menu-toggle')];
+    const key = 'alamak-sidebar-open-menu';
 
-    const toggles = document.querySelectorAll(".menu-toggle");
+    const setOpen = (toggle, open) => {
+        const submenu = document.getElementById(toggle.getAttribute('aria-controls'));
+        if (!submenu) return;
+        toggle.classList.toggle('open', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        submenu.classList.toggle('show', open);
+    };
 
-    // اگر لینک فعال داخل زیرمنو باشد، والد را باز کن
-    document.querySelectorAll(".active-menu").forEach(activeLink => {
-
-        const submenu = activeLink.closest(".submenu");
-
-        if (submenu) {
-
-            submenu.classList.add("show");
-
-            const toggle = submenu.previousElementSibling;
-
-            if (toggle)
-                toggle.classList.add("open");
-
+    document.querySelectorAll('#sidebar .active-menu').forEach((link) => {
+        let parent = link.closest('.submenu');
+        while (parent) {
+            const toggle = parent.previousElementSibling;
+            if (toggle?.matches('.menu-toggle')) setOpen(toggle, true);
+            parent = parent.parentElement?.closest('.submenu') ?? null;
         }
-
     });
 
-    toggles.forEach(toggle => {
-
-        toggle.addEventListener("click", function (e) {
-
-            e.preventDefault();
-
-            const submenu = this.nextElementSibling;
-
-            const opened = submenu.classList.contains("show");
-
-            // بستن همه منوها
-            document.querySelectorAll(".submenu").forEach(item => {
-
-                item.classList.remove("show");
-
-            });
-
-            document.querySelectorAll(".menu-toggle").forEach(item => {
-
-                item.classList.remove("open");
-
-            });
-
-            // اگر بسته بود بازش کن
-            if (!opened) {
-
-                submenu.classList.add("show");
-
-                this.classList.add("open");
-
-                localStorage.setItem("menu", this.dataset.menu);
-
-            } else {
-
-                localStorage.removeItem("menu");
-
-            }
-
+    toggles.forEach((toggle) => {
+        toggle.addEventListener('click', (event) => {
+            event.preventDefault();
+            const opening = toggle.getAttribute('aria-expanded') !== 'true';
+            setOpen(toggle, opening);
+            if (opening) localStorage.setItem(key, toggle.dataset.menu);
+            else if (localStorage.getItem(key) === toggle.dataset.menu) localStorage.removeItem(key);
         });
-
     });
 
-    // آخرین منوی باز
-    const last = localStorage.getItem("menu");
-
-    if(last){
-
-        const submenu=document.getElementById("submenu"+last);
-
-        const toggle=document.querySelector(
-            '.menu-toggle[data-menu="'+last+'"]'
-        );
-
-        if(submenu && toggle){
-
-            submenu.classList.add("show");
-
-            toggle.classList.add("open");
-
-        }
-
-    }
-
+    const lastOpen = localStorage.getItem(key);
+    const remembered = toggles.find((toggle) => toggle.dataset.menu === lastOpen);
+    if (remembered) setOpen(remembered, true);
 });

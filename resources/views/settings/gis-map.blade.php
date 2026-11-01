@@ -12,6 +12,136 @@
     @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="alert alert-danger"><ul class="mb-0">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
 
+    <link href="{{ url('css/ol.css') }}" rel="stylesheet">
+    <script src="{{ asset('js/ol.js') }}"></script>
+    <style>
+        .map-profile-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: var(--surface); }
+        .map-profile-preview { height: 310px; border-radius: 10px; overflow: hidden; background: #eef2f4; }
+        .map-profile-url { direction: ltr; text-align: left; overflow-wrap: anywhere; }
+        .map-profile-form { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+        @media (max-width: 767px) { .map-profile-preview { height: 240px; } }
+    </style>
+
+    <section class="card mb-3" aria-labelledby="map-profiles-title">
+        <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div><h5 id="map-profiles-title" class="mb-1">پروفایل‌های نقشه پایه</h5><p class="text-muted mb-0">پروفایل فعال، فقط نقشه پایه را تغییر می‌دهد؛ لایه MVT علمک‌ها مستقل می‌ماند.</p></div>
+            <span class="badge text-bg-info">{{ $profiles->count() }} پروفایل</span>
+        </div>
+        <div class="card-body d-grid gap-3">
+            @forelse($profiles as $profile)
+                <article class="map-profile-card">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <h6 class="mb-1">{{ $profile->name }} @if($profile->is_active)<span class="badge text-bg-success">فعال</span>@endif</h6>
+                            <div class="small text-muted">{{ $profile->service_type === 'vector_mvt' ? 'Vector MVT' : 'XYZ Raster' }} · Zoom {{ $profile->min_zoom }}–{{ $profile->max_zoom }}</div>
+                            <code class="d-block map-profile-url mt-2">{{ $profile->base_tile_url }}</code>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            @unless($profile->is_active)
+                                <form method="POST" action="{{ route('settings.gis.profiles.activate', $profile) }}">@csrf<button class="btn btn-success btn-sm" type="submit">فعال‌سازی</button></form>
+                                <form method="POST" action="{{ route('settings.gis.profiles.destroy', $profile) }}" onsubmit="return confirm('این پروفایل حذف شود؟')">@csrf @method('DELETE')<button class="btn btn-outline-danger btn-sm" type="submit">حذف</button></form>
+                            @endunless
+                        </div>
+                    </div>
+                    <details class="mt-3">
+                        <summary class="btn btn-outline-secondary btn-sm">ویرایش پروفایل</summary>
+                        <form class="map-profile-form row g-3" method="POST" action="{{ route('settings.gis.profiles.update', $profile) }}">
+                            @csrf @method('PUT')
+                            @include('settings.partials.map-profile-fields', ['profile' => $profile, 'prefix' => 'edit-'.$profile->id])
+                            <div class="col-12"><button class="btn btn-primary" type="submit">ذخیره تغییرات</button></div>
+                        </form>
+                    </details>
+                </article>
+            @empty
+                <div class="alert alert-info mb-0">هنوز پروفایلی ثبت نشده است؛ پروفایل نخست به‌صورت خودکار فعال می‌شود.</div>
+            @endforelse
+
+            <details class="map-profile-card" @if($errors->hasAny(['name','service_type','base_tile_url','style_url','min_zoom','max_zoom'])) open @endif>
+                <summary class="btn btn-primary">افزودن پروفایل نقشه</summary>
+                <form class="map-profile-form row g-3" method="POST" action="{{ route('settings.gis.profiles.store') }}">
+                    @csrf
+                    @include('settings.partials.map-profile-fields', ['profile' => null, 'prefix' => 'new'])
+                    <div class="col-12"><button class="btn btn-primary" type="submit">ثبت پروفایل</button></div>
+                </form>
+            </details>
+        </div>
+    </section>
+
+    <section class="card mb-3" aria-labelledby="map-preview-title">
+        <div class="card-header"><h5 id="map-preview-title" class="mb-0">پیش‌نمایش و تست اتصال</h5></div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end mb-3">
+                <div class="col-md-3"><label class="form-label" for="preview_type">نوع سرویس</label><select id="preview_type" class="form-select"><option value="xyz_raster">XYZ Raster</option><option value="vector_mvt">Vector MVT</option></select></div>
+                <div class="col-md-7"><label class="form-label" for="preview_url">Tile URL</label><input id="preview_url" class="form-control map-profile-url" dir="ltr" value="{{ $setting?->base_tile_url ?? config('gis.default_base_tile_url') }}"></div>
+                <div class="col-md-2"><button id="test-map-service" type="button" class="btn btn-outline-primary w-100">تست اتصال</button></div>
+            </div>
+            <div id="map-profile-preview" class="map-profile-preview" role="img" aria-label="پیش‌نمایش سرویس نقشه"></div>
+            <p id="map-profile-test-status" class="small mt-2 mb-0" role="status" aria-live="polite">برای بررسی دسترسی Tile از همین مرورگر، دکمه تست اتصال را بزنید.</p>
+            <p class="small text-muted mt-2 mb-0">در Production آدرس سرویس و منابع Style باید داخلی باشند. تست از مرورگر انجام می‌شود و Backend برای URL دلخواه درخواست شبکه ارسال نمی‌کند.</p>
+        </div>
+    </section>
+
+    <script>
+        (() => {
+            const preview = document.getElementById('map-profile-preview');
+            const type = document.getElementById('preview_type');
+            const url = document.getElementById('preview_url');
+            const status = document.getElementById('map-profile-test-status');
+            const button = document.getElementById('test-map-service');
+            let previewMap;
+            const makeLayer = () => {
+                const source = type.value === 'vector_mvt'
+                    ? new ol.source.VectorTile({format: new ol.format.MVT(), url: url.value})
+                    : new ol.source.XYZ({url: url.value});
+                const layer = type.value === 'vector_mvt'
+                    ? new ol.layer.VectorTile({source, style: new ol.style.Style({stroke: new ol.style.Stroke({color:'#64748b',width:1}), fill: new ol.style.Fill({color:'rgba(148,163,184,.25)'})})})
+                    : new ol.layer.Tile({source});
+                return {source, layer};
+            };
+            const initial = makeLayer();
+            previewMap = new ol.Map({target:preview,layers:[initial.layer],view:new ol.View({center:ol.proj.fromLonLat([51.4,35.7]),zoom:5,minZoom:0,maxZoom:22})});
+            button.addEventListener('click', async () => {
+                status.textContent = 'در حال بررسی دریافت Tile از مرورگر…';
+                button.disabled = true;
+                const policyResponse = await fetch(@json(route('settings.gis.test-service')), {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @json(csrf_token())},
+                    body: JSON.stringify({service_type: type.value, base_tile_url: url.value})
+                }).catch(() => null);
+                if (!policyResponse) {
+                    status.textContent = 'امکان بررسی سیاست امنیتی سرویس وجود ندارد.';
+                    button.disabled = false;
+                    return;
+                }
+                const policy = await policyResponse.json().catch(() => ({}));
+                if (!policyResponse.ok || policy.valid !== true) {
+                    status.textContent = Object.values(policy.errors || {}).flat()[0] || 'آدرس سرویس با سیاست امنیتی سازگار نیست.';
+                    button.disabled = false;
+                    return;
+                }
+                const {source: testSource, layer} = makeLayer();
+                let finished = false;
+                const done = (ok, message) => {
+                    if (finished) return;
+                    finished = true;
+                    clearTimeout(timer);
+                    testSource.un('tileloadend', success);
+                    testSource.un('tileloaderror', failure);
+                    status.textContent = message;
+                    button.disabled = false;
+                };
+                const success = () => done(true, 'اتصال موفق است و Tile از سرویس انتخاب‌شده دریافت شد.');
+                const failure = () => done(false, 'Tile دریافت نشد؛ URL، دسترسی شبکه یا CORS سرویس را بررسی کنید.');
+                testSource.on('tileloadend', success);
+                testSource.on('tileloaderror', failure);
+                previewMap.setLayers([layer]);
+                previewMap.getView().setZoom(5);
+                previewMap.renderSync();
+                const timer = setTimeout(() => done(false, 'در مهلت تعیین‌شده پاسخی از سرویس دریافت نشد.'), 8000);
+            });
+        })();
+    </script>
+
     <div class="card"><div class="card-header">سرویس Base Tile</div><div class="card-body">
         <form method="POST" action="{{ route('settings.gis.update') }}">
             @csrf @method('PUT')

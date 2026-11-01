@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ContractController;
 use App\Http\Controllers\ContractorController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GroupUserController;
 use App\Http\Controllers\GisSettingsController;
 use App\Http\Controllers\MapController;
+use App\Http\Controllers\MaintenanceCaseController;
 use App\Http\Controllers\MaterialCategoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\MbtilesController;
@@ -65,8 +67,21 @@ Route::post('/login', [
 */
 
 Route::middleware('auth')->group(function () {
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit.index');
+    Route::get('/maintenance-cases', [MaintenanceCaseController::class, 'index'])->name('maintenance-cases.index');
+    Route::post('/maintenance-cases', [MaintenanceCaseController::class, 'store'])->name('maintenance-cases.store');
+    Route::get('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase')->name('maintenance-cases.show');
+    Route::get('/maintenance-cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto')->name('maintenance-cases.photos.show');
+    Route::post('/maintenance-cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase')->name('maintenance-cases.operation.store');
+    Route::put('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'update'])->whereNumber('maintenanceCase')->name('maintenance-cases.update');
+    Route::post('/maintenance-cases/{maintenanceCase}/review', [MaintenanceCaseController::class, 'review'])->whereNumber('maintenanceCase')->name('maintenance-cases.review');
     Route::get('/settings/gis-map', [GisSettingsController::class, 'edit'])->name('settings.gis.edit');
+    Route::post('/settings/gis-map/test-service', [GisSettingsController::class, 'testService'])->name('settings.gis.test-service');
     Route::put('/settings/gis-map', [GisSettingsController::class, 'update'])->name('settings.gis.update');
+    Route::post('/settings/gis-map/profiles', [GisSettingsController::class, 'storeProfile'])->name('settings.gis.profiles.store');
+    Route::put('/settings/gis-map/profiles/{gisMapSetting}', [GisSettingsController::class, 'updateProfile'])->whereNumber('gisMapSetting')->name('settings.gis.profiles.update');
+    Route::post('/settings/gis-map/profiles/{gisMapSetting}/activate', [GisSettingsController::class, 'activateProfile'])->whereNumber('gisMapSetting')->name('settings.gis.profiles.activate');
+    Route::delete('/settings/gis-map/profiles/{gisMapSetting}', [GisSettingsController::class, 'destroyProfile'])->whereNumber('gisMapSetting')->name('settings.gis.profiles.destroy');
     Route::post('/settings/gis-map/layers', [GisSettingsController::class, 'storeLayer'])->name('settings.gis.layers.store');
     Route::delete('/settings/gis-map/layers/{gisMapLayer}', [GisSettingsController::class, 'destroyLayer'])->name('settings.gis.layers.destroy');
     Route::prefix('platform')->name('platform.')->controller(WorkflowStudioController::class)->group(function () {
@@ -133,15 +148,19 @@ Route::middleware('auth')->group(function () {
         ->group(function () {
 
             Route::get('/map', 'index')
-                ->name('map');
+                ->name('map')
+                ->middleware('check_permission:map.view');
 
             Route::get('/map/geojson', 'geojson')
-                ->name('map.geojson');
+                ->name('map.geojson')
+                ->middleware('check_permission:map.view');
 
-            Route::get('/search-alamak', 'search');
+            Route::get('/search-alamak', 'search')
+                ->middleware('check_permission:map.view');
 
             Route::get('/map/tools/extent', 'extent')
-                ->name('myextent');
+                ->name('myextent')
+                ->middleware('check_permission:map.view');
         });
 
     /*
@@ -165,19 +184,24 @@ Route::middleware('auth')->group(function () {
         ->group(function () {
 
             Route::get('/riser/index', 'index')
-                ->name('riserIndex');
+                ->name('riserIndex')
+                ->middleware('check_permission:riser.view');
 
             Route::get('/risers/table', 'table')
-                ->name('riser.table');
+                ->name('riser.table')
+                ->middleware('check_permission:riser.view');
 
             Route::get('/risers/data', 'data')
-                ->name('riser.data');
+                ->name('riser.data')
+                ->middleware('check_permission:riser.view');
 
             Route::get('/riser/{id}', 'show')
-                ->name('riser.show');
+                ->name('riser.show')
+                ->middleware('check_permission:riser.view');
 
             Route::get('/api/riser/{id}', 'details')
-                ->name('riser.details');
+                ->name('riser.details')
+                ->middleware('check_permission:riser.view');
 
             Route::post('/riser/{riser}/bookmark', 'bookmark')
                 ->name('bookmark');
@@ -256,10 +280,11 @@ Route::middleware('auth')->group(function () {
         ContractorController::class
     );
 
-    Route::resource(
-        'contract',
-        ContractController::class
-    );
+    Route::resource('contract', ContractController::class)
+        ->middlewareFor(['index', 'show'], 'check_permission:contract.view')
+        ->middlewareFor(['create', 'store'], 'check_permission:contract.create')
+        ->middlewareFor(['edit', 'update'], 'check_permission:contract.edit')
+        ->middlewareFor('destroy', 'check_permission:contract.delete');
 
     /*
     |--------------------------------------------------------------------------
@@ -267,15 +292,17 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::resource(
-        'material-category',
-        MaterialCategoryController::class
-    );
+    Route::resource('material-category', MaterialCategoryController::class)
+        ->middlewareFor(['index', 'show'], 'check_permission:material-category.view')
+        ->middlewareFor(['create', 'store'], 'check_permission:material-category.create')
+        ->middlewareFor(['edit', 'update'], 'check_permission:material-category.edit')
+        ->middlewareFor('destroy', 'check_permission:material-category.delete');
 
-    Route::resource(
-        'material',
-        MaterialController::class
-    );
+    Route::resource('material', MaterialController::class)
+        ->middlewareFor(['index', 'show'], 'check_permission:material.view')
+        ->middlewareFor(['create', 'store'], 'check_permission:material.create')
+        ->middlewareFor(['edit', 'update'], 'check_permission:material.edit')
+        ->middlewareFor('destroy', 'check_permission:material.delete');
 
     /*
     |--------------------------------------------------------------------------
@@ -283,10 +310,11 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::resource(
-        'operation-category',
-        OperationCategoryController::class
-    );
+    Route::resource('operation-category', OperationCategoryController::class)
+        ->middlewareFor(['index', 'show'], 'check_permission:operation-category.view')
+        ->middlewareFor(['create', 'store'], 'check_permission:operation-category.create')
+        ->middlewareFor(['edit', 'update'], 'check_permission:operation-category.edit')
+        ->middlewareFor('destroy', 'check_permission:operation-category.delete');
 
     /*
     |--------------------------------------------------------------------------
@@ -310,6 +338,10 @@ Route::middleware('auth')->group(function () {
 
             Route::get('/pdf', 'pdf')
                 ->name('report.pdf');
+
+            Route::post('/saved', 'storeSaved')->name('reports.saved.store');
+            Route::get('/saved/{savedReport}/open', 'openSaved')->whereNumber('savedReport')->name('reports.saved.open');
+            Route::delete('/saved/{savedReport}', 'destroySaved')->whereNumber('savedReport')->name('reports.saved.destroy');
         });
 });
 

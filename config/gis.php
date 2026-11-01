@@ -3,6 +3,7 @@
 return [
     'default_base_tile_url' => env('GIS_BASE_TILE_URL', '/tiles/{z}/{x}/{y}.png'),
     'default_attribution' => env('GIS_BASE_TILE_ATTRIBUTION'),
+    'allowed_internal_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('GIS_ALLOWED_INTERNAL_HOSTS', ''))))),
 
     // برای افزودن لایه جدید، یک عضو با کلید یکتا به این آرایه اضافه کنید.
     // vector_tile به endpoint شامل {z}/{x}/{y} نیاز دارد.

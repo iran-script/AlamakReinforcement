@@ -105,7 +105,7 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['workflow_instance_id', 'performed_at'], 'workflow_history_order_index');
         });
-        DB::statement("CREATE FUNCTION prevent_workflow_history_mutation() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'workflow instance transition history is immutable'; END; $$ LANGUAGE plpgsql");
+        DB::statement("CREATE OR REPLACE FUNCTION prevent_workflow_history_mutation() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'workflow instance transition history is immutable'; END; $$ LANGUAGE plpgsql");
         DB::statement('CREATE TRIGGER workflow_history_immutable BEFORE UPDATE OR DELETE ON workflow_instance_transitions FOR EACH ROW EXECUTE PROCEDURE prevent_workflow_history_mutation()');
 
         Schema::create('workflow_tasks', function (Blueprint $table) {

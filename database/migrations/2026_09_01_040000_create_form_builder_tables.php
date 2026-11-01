@@ -89,7 +89,7 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['form_submission_id', 'field_key']);
         });
-        DB::statement("CREATE FUNCTION prevent_submitted_form_mutation() RETURNS trigger AS $$ BEGIN IF OLD.status IN ('submitted','superseded','cancelled') THEN RAISE EXCEPTION 'final form submissions are immutable'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql");
+        DB::statement("CREATE OR REPLACE FUNCTION prevent_submitted_form_mutation() RETURNS trigger AS $$ BEGIN IF OLD.status IN ('submitted','superseded','cancelled') THEN RAISE EXCEPTION 'final form submissions are immutable'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql");
         DB::statement('CREATE TRIGGER submitted_form_immutable BEFORE UPDATE OR DELETE ON form_submissions FOR EACH ROW EXECUTE PROCEDURE prevent_submitted_form_mutation()');
     }
 

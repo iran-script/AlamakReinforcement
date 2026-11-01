@@ -29,6 +29,7 @@ class OperationController extends Controller
         return response()->json(
             Operation::query()
                 ->whereHas('riser', fn ($query) => $query->visibleTo(auth()->user()))
+                ->when(auth()->user()->hasRole('boss'), fn ($query) => $query->whereIn('group_user_id', auth()->user()->managedGroupIds()))
                 ->with(['riser', 'operationCategory', 'user'])
                 ->latest('operation_date')
                 ->paginate(25)
@@ -82,13 +83,17 @@ class OperationController extends Controller
             );
 
             foreach ($request->file('photos_after', []) as $file) {
-                OperationImage::query()->create([
+                $photo = OperationImage::query()->create([
                     'operation_id' => $operation->id,
                     'riser_id' => $riser->id,
                     'type' => 'after',
                     'path' => $file->store('operation-photos', 'public'),
                     'original_name' => $file->getClientOriginalName(),
                     'uploaded_by' => $request->user()->id,
+                ]);
+                $this->auditLogger->record('operation.photo_added', $photo, null, [
+                    'photo_id' => $photo->id, 'type' => 'after', 'riser_id' => $photo->riser_id,
+                    'operation_id' => $photo->operation_id,
                 ]);
             }
 
@@ -123,6 +128,7 @@ class OperationController extends Controller
         return response()->json(
             Operation::query()
                 ->where('riser_id', $riser->id)
+                ->when($request->user()->hasRole('boss'), fn ($query) => $query->whereIn('group_user_id', $request->user()->managedGroupIds()))
                 ->with(['operationCategory', 'user', 'operationMaterial', 'images', 'supervisors'])
                 ->latest('operation_date')
                 ->latest('id')
@@ -181,13 +187,17 @@ class OperationController extends Controller
             }
 
             foreach ($request->file('photos_after', []) as $file) {
-                OperationImage::query()->create([
+                $photo = OperationImage::query()->create([
                     'operation_id' => $operation->id,
                     'riser_id' => $operation->riser_id,
                     'type' => 'after',
                     'path' => $file->store('operation-photos', 'public'),
                     'original_name' => $file->getClientOriginalName(),
                     'uploaded_by' => $request->user()->id,
+                ]);
+                $this->auditLogger->record('operation.photo_added', $photo, null, [
+                    'photo_id' => $photo->id, 'type' => 'after', 'riser_id' => $photo->riser_id,
+                    'operation_id' => $photo->operation_id,
                 ]);
             }
         });
@@ -263,6 +273,10 @@ class OperationController extends Controller
     {
         Gate::authorize('delete', $operation);
 
+        $this->auditLogger->record('operation.deleted', $operation, $this->auditLogger->attributesFor($operation), null, [
+            'photo_ids' => $operation->images()->pluck('id')->all(),
+        ]);
+
         DB::transaction(fn () => $operation->delete());
         return response()->json(['success' => true]);
     }
@@ -291,6 +305,11 @@ class OperationController extends Controller
             'path' => $file->store('operation-photos', 'public'),
             'original_name' => $file->getClientOriginalName(),
             'uploaded_by' => $request->user()->id,
+        ]);
+
+        $this->auditLogger->record('operation.photo_added', $photo, null, [
+            'photo_id' => $photo->id, 'type' => $photo->type, 'riser_id' => $photo->riser_id,
+            'operation_id' => $photo->operation_id,
         ]);
 
         return response()->json(['id' => $photo->id, 'type' => $photo->type]);

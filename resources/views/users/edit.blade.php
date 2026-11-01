@@ -217,7 +217,7 @@
 
 
 <select name="zone_id"
-        class="form-select @error('zone_id') is-invalid @enderror">
+        class="form-select @error('zone_id') is-invalid @enderror" @required($isBoss)>
 
 
 <option value="">

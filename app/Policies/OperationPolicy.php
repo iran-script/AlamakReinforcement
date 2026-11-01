@@ -10,7 +10,8 @@ class OperationPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole('superadmin') || $user->can('operation.view');
+        return $user->hasRole('superadmin') || $user->can('operation.view')
+            || ($user->hasRole('boss') && $user->zone_id !== null && $user->managedGroupIds() !== []);
     }
 
     public function create(User $user): bool
@@ -20,7 +21,7 @@ class OperationPolicy
 
     public function view(User $user, Operation $operation): bool
     {
-        return $this->visible($user, $operation) && ($user->hasRole('superadmin') || $user->can('operation.view'));
+        return $this->visible($user, $operation) && ($user->hasRole('superadmin') || $user->can('operation.view') || $user->hasRole('boss'));
     }
 
     public function update(User $user, Operation $operation): bool
@@ -29,7 +30,7 @@ class OperationPolicy
             return false;
         }
 
-        return $this->visible($user, $operation) && ($user->hasRole('superadmin') || $user->can('operation.edit'));
+        return $this->visible($user, $operation) && ($user->hasRole('superadmin') || $user->can('operation.edit') || $user->hasRole('boss'));
     }
 
     public function delete(User $user, Operation $operation): bool
@@ -53,7 +54,7 @@ class OperationPolicy
             return false;
         }
 
-        if (! ($user->hasRole(['superadmin', 'supervisor']) || $user->can('operation.approve'))) {
+        if (! ($user->hasRole(['superadmin', 'supervisor', 'boss']) || $user->can('operation.approve'))) {
             return false;
         }
 
@@ -65,6 +66,18 @@ class OperationPolicy
 
     private function visible(User $user, Operation $operation): bool
     {
-        return Riser::query()->visibleTo($user)->whereKey($operation->riser_id)->exists();
+        if (! Riser::query()->visibleTo($user)->whereKey($operation->riser_id)->exists()) {
+            return false;
+        }
+
+        if ($user->hasRole('boss')) {
+            $managedGroupIds = $user->managedGroupIds();
+            if ($managedGroupIds === []) return false;
+            $operationGroupId = $operation->group_user_id
+                ?? $operation->user()->value('group_user_id');
+            return in_array((int) $operationGroupId, $managedGroupIds, true);
+        }
+
+        return true;
     }
 }

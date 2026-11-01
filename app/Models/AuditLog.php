@@ -11,8 +11,9 @@ class AuditLog extends Model
     public const UPDATED_AT = null;
 
     protected $fillable = [
-        'organization_id', 'actor_id', 'event', 'auditable_type', 'auditable_id',
-        'before', 'after', 'metadata', 'ip_address', 'user_agent',
+        'organization_id', 'actor_id', 'actor_role', 'event', 'auditable_type', 'auditable_id',
+        'zone_id', 'riser_id', 'operation_id', 'request_id', 'before', 'after', 'metadata',
+        'ip_address', 'user_agent',
     ];
 
     protected function casts(): array
@@ -22,4 +23,7 @@ class AuditLog extends Model
 
     public function actor(): BelongsTo { return $this->belongsTo(User::class, 'actor_id'); }
     public function auditable(): MorphTo { return $this->morphTo(); }
+    public function zone(): BelongsTo { return $this->belongsTo(Zone::class); }
+    public function riser(): BelongsTo { return $this->belongsTo(Riser::class); }
+    public function operation(): BelongsTo { return $this->belongsTo(Operation::class); }
 }

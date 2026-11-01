@@ -20,6 +20,8 @@ class WorkflowTransfer extends Model
     public const TYPE_FLAG_OPERATION      = 'flag_operation_required';
     public const TYPE_LEAK_CHECK_REQUEST  = 'leak_check_request';
     public const TYPE_LEAK_CHECK_REJECTED = 'leak_check_rejected';
+    public const TYPE_OPERATION_REVIEW_REQUEST = 'operation_review_request';
+    public const TYPE_OPERATION_REVIEW_RETURNED = 'operation_review_returned';
 
     public function fromUser()
     {

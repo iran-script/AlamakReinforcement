@@ -48,6 +48,8 @@
                     <tr>
                         <th width="60">#</th>
                         <th>نام گروه</th>
+                        <th>سازمان / Zone</th>
+                        <th>رؤسای مجاز</th>
                         <th>توضیحات</th>
                         <th>تعداد کاربران</th>
                         <th>تاریخ ایجاد</th>
@@ -72,6 +74,9 @@
                                     {{ $group->name }}
                                 </span>
                             </td>
+
+                            <td>{{ $group->organization?->name ?? 'محدوده تعیین‌نشده' }}<div class="small text-muted">{{ $group->zone?->name ?? 'بدون Zone' }}</div></td>
+                            <td>{{ $group->managers->pluck('name')->join('، ') ?: '—' }}</td>
 
 
                             <td>
@@ -136,7 +141,7 @@
 
                         <tr>
 
-                            <td colspan="6">
+                            <td colspan="8">
 
                                 <div class="empty-state">
 

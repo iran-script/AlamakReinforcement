@@ -11,6 +11,8 @@ class Operation extends Model
     // contract_id تکراری بود، یکیش حذف شد
     protected $fillable = [
         'riser_id',
+        'maintenance_case_id', 'client_uuid',
+        'group_user_id',
         'contract_id',
         'operation_category_id',
         'user_id',
@@ -77,5 +79,15 @@ class Operation extends Model
     public function images()
     {
         return $this->hasMany(OperationImage::class);
+    }
+
+    public function maintenanceCase()
+    {
+        return $this->belongsTo(MaintenanceCase::class);
+    }
+
+    public function groupUser()
+    {
+        return $this->belongsTo(GroupUser::class, 'group_user_id');
     }
 }

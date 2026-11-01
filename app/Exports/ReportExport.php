@@ -2,473 +2,113 @@
 
 namespace App\Exports;
 
-use App\Models\Operation;
+use App\Services\ReportService;
 use Illuminate\Http\Request;
-use Maatwebsite\Excel\Concerns\FromCollection;
+use Maatwebsite\Excel\Concerns\FromQuery;
+use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
-use Maatwebsite\Excel\Concerns\ShouldAutoSize;
-use Illuminate\Support\Facades\DB;
 
-
-class ReportExport implements
-    FromCollection,
-    WithHeadings,
-    WithMapping,
-    ShouldAutoSize
+class ReportExport implements FromQuery, WithHeadings, WithMapping, ShouldAutoSize
 {
+    private const COLUMNS = [
+        'riser' => 'کد علمک', 'operation' => 'نوع عملیات', 'date' => 'تاریخ',
+        'status' => 'وضعیت', 'priority' => 'اولویت', 'user' => 'ناظر ثبت‌کننده',
+        'group' => 'گروه تعمیراتی', 'supervisor' => 'ناظر ثبت‌کننده', 'case_status' => 'وضعیت پرونده تعمیر',
+        'cost' => 'مقدار ذخیره‌شده total_cost', 'materials' => 'مصالح (مقدار و واحد)',
+        'material_title' => 'مصالح', 'unit' => 'واحد', 'qty' => 'مقدار مصرف',
+        'organization' => 'سازمان', 'zone' => 'Zone جغرافیایی', 'identified_at' => 'تاریخ شناسایی',
+        'description' => 'شرح خرابی', 'operation_date' => 'تاریخ تعمیر', 'submitted_at' => 'زمان ارسال گزارش',
+        'last_editor' => 'آخرین ویرایش‌کننده', 'photos_count' => 'تعداد تصاویر', 'repair_count' => 'دفعات تعمیر علمک',
+    ];
 
-    protected $request;
-
-
-    public function __construct(Request $request)
+    public function __construct(private readonly Request $request)
     {
-        $this->request = $request;
     }
 
-
-
-    public function collection()
+    public function query()
     {
-
-        $query = Operation::with([
-            'riser',
-            'user',
-            'operationCategory',
-            'operationMaterial',
-            'supervisors'
-        ]);
-
-        if (! $this->request->user()->hasRole('superadmin')) {
-            $query->whereHas('riser', fn ($riser) => $riser->visibleTo($this->request->user()));
+        $service = app(ReportService::class);
+        if ($this->request->input('dataset') === 'maintenance_cases') {
+            return $service->maintenanceCasesQuery($this->request)
+                ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'lastEditor:id,name', 'operation.operationCategory', 'operationCategory:id,title'])
+                ->limit(5000);
+        }
+        $operations = $service->operationsQuery($this->request);
+        if ($this->request->input('dataset') === 'materials') {
+            return \Illuminate\Support\Facades\DB::table('operation_materials')
+                ->join('materials', 'materials.id', '=', 'operation_materials.material_id')
+                ->whereIn('operation_materials.operation_id', (clone $operations)->reorder()->select('operations.id'))
+                ->select('materials.id as material_id', 'materials.title as material_title', 'materials.unit')
+                ->selectRaw('SUM(operation_materials.qty) AS qty')
+                ->groupBy('materials.id', 'materials.title', 'materials.unit')
+                ->orderBy('materials.title')->orderBy('materials.unit')->limit(5000);
         }
 
-
-
-        if ($this->request->filled('from')) {
-
-            $query->whereDate(
-                'operation_date',
-                '>=',
-                $this->request->from
-            );
-
-        }
-
-
-
-        if ($this->request->filled('to')) {
-
-            $query->whereDate(
-                'operation_date',
-                '<=',
-                $this->request->to
-            );
-
-        }
-
-
-
-        if ($this->request->filled('status')) {
-
-            $query->where(
-                'status',
-                $this->request->status
-            );
-
-        }
-
-
-
-        if ($this->request->filled('priority')) {
-
-            $query->where(
-                'priority',
-                $this->request->priority
-            );
-
-        }
-
-
-
-        if ($this->request->filled('contractor')) {
-
-            $query->where(
-                'user_id',
-                $this->request->contractor
-            );
-
-        }
-
-
-
-        if ($this->request->filled('operation_category')) {
-
-            $query->where(
-                'operation_category_id',
-                $this->request->operation_category
-            );
-
-        }
-
-
-
-        if ($this->request->filled('supervisor')) {
-
-            $query->whereHas(
-                'supervisors',
-                function ($q) {
-
-                    $q->where(
-                        'users.id',
-                        $this->request->supervisor
-                    );
-
-                }
-            );
-
-        }
-
-
-
-        if ($this->request->filled('material')) {
-
-            $query->whereHas(
-                'operationMaterial',
-                function ($q) {
-
-                    $q->where(
-                        'material_id',
-                        $this->request->material
-                    );
-
-                }
-            );
-
-        }
-
-
-
-        return $query
-            ->latest('operation_date')
-            ->get();
-
+        // Bound export volume and let Laravel Excel process query chunks.
+        return $operations
+            ->with(['riser', 'user', 'operationCategory', 'operationMaterial', 'groupUser', 'maintenanceCase'])
+            ->limit(5000);
     }
-
-
-
 
     public function headings(): array
     {
-        return [
-
-            'کد علمک',
-
-            'نوع عملیات',
-
-            'تاریخ',
-
-            'وضعیت',
-
-            'اولویت',
-
-            'پیمانکار',
-
-            'هزینه عملیات',
-
-            'تعداد مصالح',
-
-            'هزینه مصالح',
-
-        ];
+        $defaultColumns = $this->request->input('dataset') === 'materials'
+            ? ['material_title', 'unit', 'qty']
+            : ($this->request->input('dataset') === 'maintenance_cases'
+                ? ['riser', 'organization', 'zone', 'supervisor', 'group', 'identified_at', 'description', 'priority', 'status', 'operation_date', 'operation', 'submitted_at', 'last_editor', 'photos_count', 'repair_count']
+                : ['riser', 'operation', 'date', 'status', 'priority', 'user', 'cost', 'materials']);
+        $columns = $this->request->input('columns', $defaultColumns);
+        return array_map(fn ($column) => self::COLUMNS[$column], $columns);
     }
-
-
-
-
 
     public function map($operation): array
     {
-
-        $qty = 0;
-
-        $cost = 0;
-
-
-        foreach ($operation->operationMaterial as $material) {
-
-            $qty += $material->pivot->qty;
-
-            $cost += $material->pivot->total;
-
+        if ($this->request->input('dataset') === 'maintenance_cases') {
+            $values = [
+                'riser' => $operation->riser?->r_giscode ?: $operation->riser?->giscode,
+                'organization' => $operation->organization_name,
+                'zone' => $operation->zone_name,
+                'supervisor' => $operation->reporter?->name,
+                'group' => $operation->assignedGroup?->name,
+                'identified_at' => $operation->identified_at?->format('Y-m-d H:i:s') ?? $operation->identified_at,
+                'description' => $operation->description,
+                'priority' => $operation->priority,
+                'status' => $operation->status,
+                'operation_date' => $operation->operation?->operation_date,
+                'operation' => $operation->operation?->operationCategory?->title ?? $operation->operationCategory?->title,
+                'submitted_at' => $operation->submitted_at?->format('Y-m-d H:i:s') ?? $operation->submitted_at,
+                'last_editor' => $operation->lastEditor?->name,
+                'photos_count' => $operation->photos_count,
+                'repair_count' => $operation->repair_count,
+            ];
+            $columns = $this->request->input('columns', array_keys($values));
+            return array_map(fn ($column) => $values[$column], $columns);
         }
 
-
-
-        return [
-
-            optional($operation->riser)->code,
-
-            optional($operation->operationCategory)->title,
-
-            $operation->operation_date,
-
-            $operation->status,
-
-            $operation->priority,
-
-            optional($operation->user)->name,
-
-            $operation->total_cost,
-
-            $qty,
-
-            $cost,
-
-        ];
-
-    }
-    private function supervisors($operations)
-{
-    $supervisors = [];
-
-
-    foreach ($operations as $operation) {
-
-
-        foreach ($operation->supervisors as $supervisor) {
-
-
-            $id = $supervisor->id;
-
-
-            if (!isset($supervisors[$id])) {
-
-                $supervisors[$id] = [
-
-                    'id' => $id,
-
-                    'name' => $supervisor->name,
-
-                    'operation_count' => 0,
-
-                    'approved' => 0,
-
-                    'rejected' => 0,
-
-                    'pending' => 0,
-
-                ];
-
-            }
-
-
-
-            $supervisors[$id]['operation_count']++;
-
-
-
-            switch ($supervisor->pivot->status) {
-
-
-                case 'تایید':
-
-                    $supervisors[$id]['approved']++;
-
-                    break;
-
-
-
-                case 'رد':
-
-                    $supervisors[$id]['rejected']++;
-
-                    break;
-
-
-
-                default:
-
-                    $supervisors[$id]['pending']++;
-
-                    break;
-
-            }
-
+        if ($this->request->input('dataset') === 'materials') {
+            $values = ['material_title' => $operation->material_title, 'unit' => $operation->unit, 'qty' => (float) $operation->qty];
+            return array_map(fn ($column) => $values[$column], $this->request->input('columns', ['material_title', 'unit', 'qty']));
         }
 
-    }
+        $materialUsage = $operation->operationMaterial
+            ->map(fn ($material) => $material->title.' ('.$material->pivot->qty.' '.$material->unit.')')
+            ->implode('; ');
 
-
-    return array_values($supervisors);
-
-}
-private function geoJson($operations)
-{
-
-    $features = [];
-
-
-    foreach ($operations as $operation) {
-
-
-        if (
-            !$operation->riser ||
-            !$operation->riser->geom
-        ) {
-            continue;
-        }
-
-
-
-        $geometry = DB::selectOne(
-            "
-            SELECT ST_AsGeoJSON(geom) as geom
-            FROM riser
-            WHERE id = ?
-            ",
-            [
-                $operation->riser_id
-            ]
-        );
-
-
-
-        if (!$geometry || !$geometry->geom) {
-            continue;
-        }
-
-
-
-        $features[] = [
-
-            'type' => 'Feature',
-
-
-            'geometry' => json_decode(
-                $geometry->geom
-            ),
-
-
-
-            'properties' => [
-
-                'id' => $operation->id,
-
-                'riser' =>
-                    $operation->riser->code,
-
-
-                'operation' =>
-                    optional(
-                        $operation->operationCategory
-                    )->title,
-
-
-                'status' =>
-                    $operation->status,
-
-
-                'priority' =>
-                    $operation->priority,
-
-
-                'contractor' =>
-                    optional(
-                        $operation->user
-                    )->name,
-
-
-                'cost' =>
-                    $operation->total_cost,
-
-            ]
-
-        ];
-
-    }
-
-
-
-    return [
-
-        'type' => 'FeatureCollection',
-
-        'features' => $features
-
-    ];
-
-}
-private function table($operations)
-{
-    $table = [];
-
-
-    foreach ($operations as $operation) {
-
-        $materialQty = 0;
-        $materialCost = 0;
-
-
-        foreach ($operation->operationMaterial as $material) {
-
-            $materialQty += $material->pivot->qty;
-
-            $materialCost += $material->pivot->total;
-
-        }
-
-
-
-        $table[] = [
-
-            'id' => $operation->id,
-
-
-            'riser_code' => optional(
-                $operation->riser
-            )->code,
-
-
-            'operation' => optional(
-                $operation->operationCategory
-            )->title,
-
-
+        $values = [
+            'riser' => $operation->riser?->giscode,
+            'operation' => $operation->operationCategory?->title,
             'date' => $operation->operation_date,
-
-
             'status' => $operation->status,
-
-
             'priority' => $operation->priority,
-
-
-            'contractor' => optional(
-                $operation->user
-            )->name,
-
-
-            'total_cost' => $operation->total_cost,
-
-
-            'material_qty' => $materialQty,
-
-
-            'material_cost' => $materialCost,
-
-
-            'materials' => $operation->operationMaterial,
-
-
-            'supervisors' => $operation->supervisors
-
+            'user' => $operation->user?->name,
+            'supervisor' => $operation->user?->name,
+            'group' => $operation->groupUser?->name,
+            'case_status' => $operation->maintenanceCase?->status,
+            'cost' => $operation->total_cost,
+            'materials' => $materialUsage,
         ];
 
+        return array_map(fn ($column) => $values[$column], $this->request->input('columns', ['riser', 'operation', 'date', 'status', 'priority', 'user', 'cost', 'materials']));
     }
-
-
-    return $table;
-}
-
 }

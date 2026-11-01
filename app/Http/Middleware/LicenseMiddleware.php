@@ -9,6 +9,9 @@ class LicenseMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
+        if ($this->mayBypassForLocalDevelopment($request)) {
+            return $next($request);
+        }
 
         $licensePath = config('license.license_path');
 
@@ -68,5 +71,25 @@ class LicenseMiddleware
 
         return $next($request);
 
+    }
+
+    private function mayBypassForLocalDevelopment(Request $request): bool
+    {
+        if (config('app.env') !== 'local' || ! config('license.dev_bypass', false)) {
+            return false;
+        }
+
+        // Use the socket peer address, not Request::ip(), so forwarded headers
+        // cannot make a remote client appear to be connecting from loopback.
+        $remoteAddress = $request->server('REMOTE_ADDR');
+        if (! is_string($remoteAddress)) {
+            return false;
+        }
+
+        $packedAddress = inet_pton($remoteAddress);
+
+        return $packedAddress === inet_pton('127.0.0.1')
+            || (strlen($packedAddress ?: '') === 4 && ord($packedAddress[0]) === 127)
+            || $packedAddress === inet_pton('::1');
     }
 }

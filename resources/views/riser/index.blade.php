@@ -3,7 +3,7 @@
 @section('title', 'لیست علمک ها')
 
 @section('content')
- "container-fluid">
+<div class="container-fluid">
 
     <div class="card shadow-sm border-0">
 
@@ -51,7 +51,7 @@
                     @empty
 
                         <tr>
-                            <td colspan="3" class="text-center">
+                            <td colspan="4" class="text-center">
                                 هیچ رکوردی یافت نشد
                             </td>
                         </tr>

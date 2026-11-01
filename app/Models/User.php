@@ -7,6 +7,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -92,6 +93,36 @@ class User extends Authenticatable
     public function groupUser()
     {
         return $this->belongsTo(GroupUser::class, 'group_user_id');
+    }
+
+    public function managedGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(GroupUser::class, 'boss_managed_groups', 'boss_user_id', 'group_user_id')
+            ->withPivot('assigned_by')->withTimestamps();
+    }
+
+    /** @return list<int> */
+    public function managedGroupIds(): array
+    {
+        if ($this->isSuperAdmin()) {
+            return GroupUser::query()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        if (! $this->hasRole('boss') || $this->zone_id === null || $this->organization_id === null) {
+            return [];
+        }
+
+        return $this->managedGroups()
+            ->where('group_users.organization_id', $this->organization_id)
+            ->where('group_users.zone_id', $this->zone_id)
+            ->pluck('group_users.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    public function managesGroup(int $groupId): bool
+    {
+        return in_array($groupId, $this->managedGroupIds(), true);
     }
 
     public function operations()

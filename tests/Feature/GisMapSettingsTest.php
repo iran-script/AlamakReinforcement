@@ -8,9 +8,11 @@ use App\Models\GisMapLayer;
 use App\Models\GisMapSetting;
 use App\Models\Organization;
 use App\Models\User;
+use App\Services\MapServiceUrlValidator;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class GisMapSettingsTest extends TestCase
@@ -105,6 +107,87 @@ class GisMapSettingsTest extends TestCase
             ->assertDontSee(json_encode($globalUrl), false);
     }
 
+    public function test_superadmin_can_create_and_activate_multiple_profiles_and_mobile_api_returns_only_the_active_profile(): void
+    {
+        $this->requireSchema();
+        [, $admin] = $this->actor('profile-admin');
+        $admin->assignRole(\Spatie\Permission\Models\Role::findOrCreate('superadmin', 'web'));
+
+        $this->actingAs($admin)->post('/settings/gis-map/profiles', [
+            'name' => 'Internal Raster', 'service_type' => 'xyz_raster',
+            'base_tile_url' => '/maps/raster/{z}/{x}/{y}.png', 'style_url' => '',
+            'base_tile_attribution' => 'Internal test tiles', 'min_zoom' => 2, 'max_zoom' => 19,
+        ])->assertRedirect();
+        $raster = GisMapSetting::query()->sole();
+        $this->assertTrue($raster->is_active);
+
+        $this->actingAs($admin)->post('/settings/gis-map/profiles', [
+            'name' => 'Internal Vector', 'service_type' => 'vector_mvt',
+            'base_tile_url' => '/maps/vector/{z}/{x}/{y}.pbf', 'style_url' => '/maps/styles/base/style.json',
+            'base_tile_attribution' => 'Vector style', 'min_zoom' => 4, 'max_zoom' => 21,
+        ])->assertRedirect();
+        $vector = GisMapSetting::query()->where('name', 'Internal Vector')->firstOrFail();
+        $this->assertFalse($vector->is_active);
+
+        $this->actingAs($admin)->post(route('settings.gis.profiles.activate', $vector))->assertRedirect();
+        $this->assertFalse($raster->fresh()->is_active);
+        $this->assertTrue($vector->fresh()->is_active);
+        $this->assertSame(1, GisMapSetting::query()->where('is_active', true)->count());
+        $this->assertTrue(AuditLog::query()->where('event', 'gis.map_profile_created')->where('actor_id', $admin->id)->exists());
+        $this->assertTrue(AuditLog::query()->where('event', 'gis.map_profile_activated')->where('actor_id', $admin->id)->exists());
+
+        $this->actingAs($admin)->get('/api/map/config')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('schema_version', 1)
+            ->assertJsonPath('map_profile.service_type', 'vector_mvt')
+            ->assertJsonPath('map_profile.tile_url', '/maps/vector/{z}/{x}/{y}.pbf')
+            ->assertJsonPath('map_profile.style_url', '/maps/styles/base/style.json')
+            ->assertJsonMissingPath('backend_auth_url');
+    }
+
+    public function test_profile_service_url_policy_rejects_tokens_and_public_production_hosts(): void
+    {
+        $validator = app(MapServiceUrlValidator::class);
+        config()->set('app.env', 'local');
+        $this->assertNull($validator->error('https://tile.openstreetmap.org/{z}/{x}/{y}.png', true));
+        $this->assertNotNull($validator->error('https://tiles.example.test/{z}/{x}/{y}.png?token=secret', true));
+        $this->assertNotNull($validator->error('//tiles.example.test/{z}/{x}/{y}.png', true));
+
+        config()->set('app.env', 'production');
+        config()->set('gis.allowed_internal_hosts', ['tiles.internal.example']);
+        $this->assertNotNull($validator->error('https://tiles.example.test/{z}/{x}/{y}.png', true));
+        $this->assertNull($validator->error('https://tiles.internal.example/{z}/{x}/{y}.png', true));
+        $this->assertNotNull($validator->error('https://tiles.internal.example:8443/{z}/{x}/{y}.png', true));
+    }
+
+    public function test_connection_test_endpoint_applies_environment_url_policy_without_fetching_url(): void
+    {
+        $this->requireSchema();
+        [$organization, $user] = $this->actor('map-test-connection');
+        $this->allow($organization, $user, ['configure']);
+        config()->set('app.env', 'production');
+        config()->set('gis.allowed_internal_hosts', ['tiles.internal.example']);
+
+        $this->actingAs($user)->postJson('/settings/gis-map/test-service', [
+            'service_type' => 'xyz_raster',
+            'base_tile_url' => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        ])->assertUnprocessable()->assertJsonPath('valid', false);
+
+        $this->postJson('/settings/gis-map/test-service', [
+            'service_type' => 'xyz_raster',
+            'base_tile_url' => 'https://tiles.internal.example/{z}/{x}/{y}.png',
+        ])->assertOk()->assertJsonPath('valid', true);
+    }
+
+    public function test_mobile_map_configuration_requires_map_permission(): void
+    {
+        $this->requireSchema();
+        [, $user] = $this->actor('map-config-denied');
+        $user->revokePermissionTo('map.view');
+
+        $this->actingAs($user)->getJson('/api/map/config')->assertForbidden();
+    }
+
     public function test_map_exposes_an_allowlisted_wms_layer_configuration(): void
     {
         $this->requireSchema();
@@ -129,6 +212,46 @@ class GisMapSettingsTest extends TestCase
             ->assertSee('ol.source.TileWMS', false);
     }
 
+    public function test_local_map_offers_the_demo_riser_extent_control(): void
+    {
+        $this->requireSchema();
+        [, $user] = $this->actor('demo-map');
+        config()->set('app.env', 'local');
+
+        $this->actingAs($user)->get('/map')
+            ->assertOk()
+            ->assertSee('نمایش علمک‌های آزمایشی')
+            ->assertSee('ol.layer.VectorTile', false)
+            ->assertSee('ol.format.MVT', false)
+            ->assertSee('demo=1', false)
+            ->assertDontSee('map/geojson', false)
+            ->assertDontSee('ol.source.Cluster', false);
+    }
+
+    public function test_demo_geojson_is_unavailable_outside_local_environment(): void
+    {
+        $this->requireSchema();
+        [, $user] = $this->actor('demo-map-production');
+        config()->set('app.env', 'production');
+
+        $this->actingAs($user)->get('/map/geojson?demo=1')->assertNotFound();
+    }
+
+    public function test_local_demo_extent_uses_the_zone_scoped_postgis_extent_query(): void
+    {
+        $this->requireSchema();
+        if (! Schema::hasTable('riser') || ! Schema::hasTable('zone')) {
+            $this->markTestSkipped('Riser and PostGIS zone schema is required.');
+        }
+        [, $user] = $this->actor('demo-extent');
+        config()->set('app.env', 'local');
+
+        $this->actingAs($user)->get('/map/tools/extent?demo=1')
+            ->assertOk()
+            ->assertJsonPath('is_demo', true)
+            ->assertJsonPath('extent', null);
+    }
+
     private function requireSchema(): void
     {
         if (DB::getDriverName() !== 'pgsql' || ! Schema::hasTable('gis_map_settings') || ! Schema::hasTable('gis_map_layers')) {
@@ -146,6 +269,7 @@ class GisMapSettingsTest extends TestCase
             'password' => 'password',
             'role_id' => 1,
         ]);
+        $user->givePermissionTo(Permission::findOrCreate('map.view', 'web'));
 
         return [$organization, $user];
     }

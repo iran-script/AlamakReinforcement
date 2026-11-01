@@ -12,6 +12,7 @@ use App\Models\Operation;
 use App\Models\Zone;
 use App\Policies\OperationPolicy;
 use App\Policies\ZonePolicy;
+use App\Policies\UserPolicy;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -31,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(Operation::class, OperationPolicy::class);
         Gate::policy(Zone::class, ZonePolicy::class);
+        Gate::policy(User::class, UserPolicy::class);
 
         Gate::before(function (User $user, string $ability) {
             return $user->hasRole('superadmin') ? true : null;

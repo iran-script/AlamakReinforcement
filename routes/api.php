@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\MapConfigurationController;
 use App\Http\Controllers\Api\Platform\FormDefinitionController;
 use App\Http\Controllers\Api\Platform\FormResolutionController;
 use App\Http\Controllers\Api\Platform\FormSubmissionController;
@@ -8,6 +9,8 @@ use App\Http\Controllers\Api\Platform\WorkflowDefinitionController;
 use App\Http\Controllers\Api\Platform\WorkflowRuntimeController;
 use App\Http\Controllers\Api\Platform\WorkOrderController;
 use App\Http\Controllers\Api\RiserApiController;
+use App\Http\Controllers\Api\SupervisorMobileController;
+use App\Http\Controllers\MaintenanceCaseController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\OperationImageController;
 use App\Http\Controllers\RiserController;
@@ -23,7 +26,24 @@ use Illuminate\Support\Facades\Route;
 | از session خاصی استفاده نمی‌کردن)، فقط AuthController و RiserApiController جدیدن.
 */
 
-Route::post('login', [AuthController::class, 'login']);
+Route::get('v1/mobile/health', [SupervisorMobileController::class, 'health'])->middleware('throttle:30,1');
+Route::post('login', [AuthController::class, 'login'])->middleware('throttle:6,1');
+
+Route::prefix('v1/supervisor')->middleware(['auth:sanctum', 'mobile.supervisor'])->group(function (): void {
+    Route::get('me', [SupervisorMobileController::class, 'me']);
+    Route::get('dashboard', [SupervisorMobileController::class, 'dashboard']);
+    Route::get('references', [SupervisorMobileController::class, 'references']);
+    Route::get('risers', [SupervisorMobileController::class, 'risers']);
+    Route::get('risers/{riser}/details', [SupervisorMobileController::class, 'riserDetails'])->whereNumber('riser');
+    Route::get('risers/{riser}/history', [SupervisorMobileController::class, 'history'])->whereNumber('riser');
+    Route::get('cases', [MaintenanceCaseController::class, 'index']);
+    Route::post('cases', [MaintenanceCaseController::class, 'store']);
+    Route::get('cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase');
+    Route::post('cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase');
+    Route::get('cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto');
+    Route::get('photos/{operationImage}', [SupervisorMobileController::class, 'photo'])->whereNumber('operationImage');
+    Route::get('map/config', [MapConfigurationController::class, 'show']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -85,6 +105,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('work-orders/{workOrder}/assets/{asset}', [WorkOrderController::class, 'detachAsset']);
     });
 
+    Route::get('map/config', [MapConfigurationController::class, 'show']);
     Route::get('me', [AuthController::class, 'me']);
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('change-password', [AuthController::class, 'changePassword']);

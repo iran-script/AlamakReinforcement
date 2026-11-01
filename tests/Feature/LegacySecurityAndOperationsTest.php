@@ -333,7 +333,7 @@ class LegacySecurityAndOperationsTest extends TestCase
 
     public function test_reports_are_scoped_and_dashboard_requires_permission(): void
     {
-        [$organizationA, $user] = $this->actor('report-user', ['report.view']);
+        [$organizationA, $user] = $this->actor('report-user', ['report.view', 'dashboard.view']);
         $organizationB = Organization::create(['code' => 'org-b-'.uniqid(), 'name' => 'B']);
         $zoneA = Zone::query()->findOrFail($user->zone_id);
         $zoneB = $this->zone($organizationB, 'zone-b');
@@ -347,7 +347,12 @@ class LegacySecurityAndOperationsTest extends TestCase
         $this->assertStringContainsString('REPORT-A', $report->getContent());
         $this->assertStringNotContainsString('REPORT-B', $report->getContent());
 
-        $this->actingAs($user)->get('/dashboard')->assertForbidden();
+        $statistics = $this->actingAs($user)->getJson('/dashboard/statistics')->assertOk();
+        $statistics->assertJsonPath('total', 1)
+            ->assertJsonPath('zones.data.0', 1);
+        $this->assertStringNotContainsString('REPORT-B', $statistics->getContent());
+
+        $this->actingAs($user)->get('/dashboard')->assertOk();
     }
 
     public function test_material_report_is_quantity_and_unit_based(): void
@@ -362,12 +367,30 @@ class LegacySecurityAndOperationsTest extends TestCase
         ]);
         $operation = $this->operation($riser, $category, $user, 'material-report-operation');
         $operation->operationMaterial()->attach($material->id, ['qty' => 1.25, 'price' => 0, 'total' => 0]);
+        $differentUnit = Material::create([
+            'material_category_id' => $material->material_category_id,
+            'title' => 'Report material other', 'code' => 'mat-'.uniqid(), 'unit' => 'piece', 'default_price' => 0, 'is_active' => true,
+        ]);
+        $operation->operationMaterial()->attach($differentUnit->id, ['qty' => 3.5, 'price' => 0, 'total' => 0]);
 
         $this->actingAs($user)->getJson('/reports/data')
             ->assertOk()
+            ->assertJsonCount(2, 'materialUsage')
             ->assertJsonPath('materialUsage.0.title', 'Report material')
             ->assertJsonPath('materialUsage.0.unit', 'm')
-            ->assertJsonPath('materialUsage.0.qty', 1.25);
+            ->assertJsonPath('materialUsage.0.qty', 1.25)
+            ->assertJsonPath('materialUsage.1.unit', 'piece')
+            ->assertJsonPath('materialUsage.1.qty', 3.5);
+
+        $this->actingAs($user)->getJson('/reports/data?dataset=materials')
+            ->assertOk()
+            ->assertJsonPath('dataset', 'materials')
+            ->assertJsonPath('table.0.material_title', 'Report material')
+            ->assertJsonPath('table.0.unit', 'm')
+            ->assertJsonPath('table.0.qty', 1.25);
+        $this->actingAs($user)->get('/reports/excel?dataset=materials')
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
 
     public function test_report_json_excel_and_pdf_share_the_same_permission_boundary(): void
@@ -384,8 +407,8 @@ class LegacySecurityAndOperationsTest extends TestCase
         $category = OperationCategory::create(['title' => 'Repair', 'code' => 'repair-'.uniqid(), 'is_active' => true]);
         $this->operation($riser, $category, $allowed, 'export-operation');
 
-        $this->actingAs($allowed)->get('/reports/pdf')->assertOk();
-        $this->actingAs($allowed)->get('/reports/excel')
+        $this->actingAs($allowed)->get('/reports/pdf?columns%5B%5D=riser&columns%5B%5D=status&group_by=status')->assertOk();
+        $this->actingAs($allowed)->get('/reports/excel?columns%5B%5D=riser&columns%5B%5D=status&group_by=status')
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
@@ -395,6 +418,80 @@ class LegacySecurityAndOperationsTest extends TestCase
         [, $user] = $this->actor('dashboard', ['dashboard.view']);
 
         $this->actingAs($user)->get('/dashboard')->assertOk();
+        $this->actingAs($user)->getJson('/dashboard/statistics')
+            ->assertOk()
+            ->assertJsonStructure(['total', 'status' => ['labels', 'data'], 'monthly' => ['labels', 'data']]);
+    }
+
+    public function test_report_paginates_and_validates_filter_values(): void
+    {
+        [, $user] = $this->actor('report-pagination', ['report.view']);
+        $zone = Zone::query()->findOrFail($user->zone_id);
+        $riser = $this->riser($zone, 'REPORT-PAGE');
+        $category = OperationCategory::create(['title' => 'Repair', 'code' => 'repair-'.uniqid(), 'is_active' => true]);
+        $this->operation($riser, $category, $user, 'pagination-row');
+
+        $this->actingAs($user)->getJson('/reports/data?page=1')
+            ->assertOk()
+            ->assertJsonPath('pagination.total', 1)
+            ->assertJsonPath('pagination.per_page', 100)
+            ->assertJsonPath('cards.total', 1)
+            ->assertJsonPath('statusChart.data.0', 1)
+            ->assertJsonPath('monthChart.data.0', 1);
+
+        $this->actingAs($user)->getJson('/reports/data?status[]=injected')->assertUnprocessable();
+    }
+
+    public function test_report_rejects_foreign_zone_filter_even_when_manually_submitted(): void
+    {
+        [, $user] = $this->actor('report-zone-filter', ['report.view']);
+        $foreignOrganization = Organization::create(['code' => 'foreign-'.uniqid(), 'name' => 'Foreign']);
+        $foreignZone = $this->zone($foreignOrganization, 'foreign-zone');
+
+        $this->actingAs($user)->getJson('/reports/data?zone='.$foreignZone->id)->assertForbidden();
+    }
+
+    public function test_saved_report_configuration_is_owned_validated_and_reusable(): void
+    {
+        [, $owner] = $this->actor('saved-report-owner', ['report.view']);
+        [, $other] = $this->actor('saved-report-other', ['report.view']);
+        $this->actingAs($owner)->get('/reports')->assertOk()->assertSee('reportColumns');
+        $payload = [
+            'name' => 'Quarterly repairs',
+            'configuration' => ['status' => '0', 'columns' => ['riser', 'status'], 'sort' => 'date', 'direction' => 'desc', 'group_by' => 'status'],
+        ];
+
+        $created = $this->actingAs($owner)->postJson('/reports/saved', $payload)->assertCreated();
+        $id = $created->json('id');
+        $this->actingAs($owner)->get('/reports/saved/'.$id.'/open')->assertRedirectContains('columns%5B0%5D=riser');
+        $this->actingAs($other)->get('/reports/saved/'.$id.'/open')->assertNotFound();
+        $this->actingAs($other)->deleteJson('/reports/saved/'.$id)->assertNotFound();
+        $this->actingAs($owner)->deleteJson('/reports/saved/'.$id)->assertOk()->assertJsonPath('deleted', true);
+
+        $this->actingAs($owner)->postJson('/reports/saved', [
+            'name' => 'Unsafe', 'configuration' => ['columns' => ['riser; drop table users']],
+        ])->assertUnprocessable();
+    }
+
+    public function test_report_builder_allowlists_columns_sort_and_grouping(): void
+    {
+        [, $user] = $this->actor('report-builder', ['report.view']);
+        $zone = Zone::query()->findOrFail($user->zone_id);
+        $riser = $this->riser($zone, 'BUILDER-RISER');
+        $category = OperationCategory::create(['title' => 'Repair', 'code' => 'repair-'.uniqid(), 'is_active' => true]);
+        $this->operation($riser, $category, $user, 'builder-row');
+
+        $this->actingAs($user)->getJson('/reports/data?columns[]=riser&columns[]=status&group_by=status&sort=status')
+            ->assertOk()
+            ->assertJsonPath('columns.0.key', 'riser')
+            ->assertJsonPath('grouping.0.count', 1)
+            ->assertJsonPath('table.0.riser', 'BUILDER-RISER')
+            ->assertJsonMissingPath('table.0.cost');
+
+        $this->actingAs($user)->getJson('/reports/data?columns[]=riser%3B%20drop%20table%20users')->assertUnprocessable();
+        $this->actingAs($user)->getJson('/reports/data?sort=operations.id%20desc')->assertUnprocessable();
+        $this->actingAs($user)->getJson('/reports/data?columns[]=riser&group_by=zone')
+            ->assertOk()->assertJsonPath('grouping.0.count', 1);
     }
 
     public function test_image_upload_rejects_mismatched_operation_and_riser(): void

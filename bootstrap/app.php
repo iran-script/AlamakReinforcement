@@ -6,6 +6,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\CheckRole;
 use App\Http\Middleware\CheckPermission;
+use App\Http\Middleware\EnsureMobileSupervisor;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
 use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
@@ -25,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => RoleOrPermissionMiddleware::class,
             'check_role' => CheckRole::class,
             'check_permission' => CheckPermission::class,
+            'mobile.supervisor' => EnsureMobileSupervisor::class,
 
         ]);
         $middleware->web(append: [

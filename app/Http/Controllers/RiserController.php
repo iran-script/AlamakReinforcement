@@ -16,19 +16,28 @@ class RiserController extends Controller
 {
     // app/Http/Controllers/RiserController.php
 
-    public function __construct(private \App\Services\WorkflowService $workflow) {}
+    public function __construct(
+        private \App\Services\WorkflowService $workflow,
+        private \App\Services\AuditLogger $audit,
+    ) {}
 
     public function flagOperationRequired(Request $request, Riser $riser)
     {
-        abort_unless($request->user()->can('flag-riser-operation'), 403);
+        abort_unless($request->user()->hasRole('supervisor') || $request->user()->can('flag-riser-operation'), 403);
+        $riser = Riser::query()->visibleTo($request->user())->findOrFail($riser->id);
 
         $transfer = $this->workflow->flagRiser($riser, $request->user(), $request->input('comment'));
+        $this->audit->record('riser.flagged_for_operation', $riser, null, [
+            'riser_id' => $riser->id, 'workflow_transfer_id' => $transfer->id,
+        ]);
 
         return response()->json(['success' => true, 'transfer' => $transfer]);
     }
     public function index()
     {
-        $risers = Riser::orderBy('updated_at', 'desc')->paginate(20);
+        $risers = Riser::visibleTo(request()->user())
+            ->orderBy('updated_at', 'desc')
+            ->paginate(20);
 
         return view('riser.index', compact('risers'));
     }
@@ -84,14 +93,6 @@ class RiserController extends Controller
 
 
 
-        $zone = DB::table('zone')
-            ->whereRaw(
-                'ST_Contains(geom, ST_Transform(?,32639))',
-                [$riser->geom]
-            )
-            ->first();
-
-
         if (!$riser) {
 
             return response()->json([
@@ -99,6 +100,10 @@ class RiserController extends Controller
                 'message' => 'علمک پیدا نشد.'
             ], 404);
         }
+
+        $zone = DB::table('zone')
+            ->whereRaw('ST_Intersects(geom, (SELECT geom FROM riser WHERE id = ?))', [$id])
+            ->first(['id', 'name']);
 
         $operation_cat = DB::table('operation_categories')
             ->orderBy('id')
@@ -119,11 +124,15 @@ class RiserController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $operations = Operation::with('operationMaterial')
+        $operationQuery = Operation::with('operationMaterial')
             ->with('operationCategory')
             ->with('user')
             ->with('images')
-            ->where('riser_id', $id)
+            ->where('riser_id', $id);
+        if ($currentUser->hasRole('boss')) {
+            $operationQuery->whereIn('group_user_id', $currentUser->managedGroupIds());
+        }
+        $operations = $operationQuery
             ->get()
             ->map(function ($item) {
                 return [
@@ -158,14 +167,16 @@ class RiserController extends Controller
 |--------------------------------------------------------------------------
 */
 
-        $workflow = WorkflowTransfer::with([
+        $workflowQuery = WorkflowTransfer::with([
             'fromUser:id,name',
             'toUser:id,name',
             'operation:id,riser_id'
         ])
-            ->where('riser_id', $id)
-            ->orderBy('send_date', 'desc')
-            ->get()
+            ->where('riser_id', $id);
+        if ($currentUser->hasRole('boss')) {
+            $workflowQuery->whereIn('operation_id', $operationQuery->select('operations.id'));
+        }
+        $workflow = $workflowQuery->orderBy('send_date', 'desc')->get()
             ->map(function ($item) {
 
                 return [
@@ -202,6 +213,7 @@ class RiserController extends Controller
             'id' => $riser->id,
 
             'code' => $riser->r_giscode,
+            'zone_name' => $zone?->name,
             'workflow' => $workflow,
 
             'operation_cat' => $operation_cat,
@@ -335,11 +347,13 @@ class RiserController extends Controller
 
     public function bookmark(Riser $riser)
     {
-        $riser->status = 'flagRiser'; // یا هر مقداری که مدنظرته
-        $riser->save();
-
-
-        $this->workflow->flagRiser($riser, Auth::user());
+        $user = Auth::user();
+        abort_unless($user && ($user->hasRole('supervisor') || $user->can('flag-riser-operation')), 403);
+        $riser = Riser::query()->visibleTo($user)->findOrFail($riser->id);
+        $transfer = $this->workflow->flagRiser($riser, $user);
+        $this->audit->record('riser.flagged_for_operation', $riser, null, [
+            'workflow_transfer_id' => $transfer->id,
+        ]);
 
         return response()->json([
             'status' => 200,

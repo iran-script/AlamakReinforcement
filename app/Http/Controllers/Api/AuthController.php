@@ -25,17 +25,26 @@ class AuthController extends Controller
 
         $user = User::where('username', $request->username)->first();
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)
+            || ! $user->hasRole('supervisor', 'web') || $user->isSuperAdmin()) {
             return response()->json([
                 'message' => 'نام کاربری یا رمز عبور اشتباه است'
             ], 401);
         }
 
-        $token = $user->createToken('mobile-app')->plainTextToken;
+        $token = $user->createToken('alamak-supervisor-app', ['mobile:supervisor'])->plainTextToken;
 
         return response()->json([
             'token' => $token,
-            'user'  => $user,
+            'user'  => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'username' => $user->username,
+                'organization_id' => $user->organization_id,
+                'zone_id' => $user->zone_id,
+                'group_user_id' => $user->group_user_id,
+                'role' => 'supervisor',
+            ],
         ]);
     }
 

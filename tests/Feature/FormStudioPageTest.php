@@ -38,7 +38,7 @@ class FormStudioPageTest extends TestCase
         $foreign = Organization::create(['code' => uniqid('foreign-'), 'name' => 'Foreign']);
         $foreignDefinition = FormDefinition::create(['organization_id' => $foreign->id, 'key' => 'foreign', 'name' => 'Foreign']);
 
-        $this->actingAs($user)->get('/platform/forms')->assertOk()->assertSee('مدیریت فرم‌ها')->assertSee('بازرسی')->assertSee('فرم‌ساز / مدیریت فرم‌ها');
+        $this->actingAs($user)->get('/platform/forms')->assertOk()->assertSee('مدیریت فرم‌ها')->assertSee('بازرسی')->assertSee('FORM STUDIO');
         $this->actingAs($user)->get("/platform/forms/{$definition->id}")->assertOk();
         $this->actingAs($user)->get("/platform/forms/{$foreignDefinition->id}")->assertForbidden();
     }
