@@ -9,6 +9,10 @@ import 'package:go_router/go_router.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../auth/session_controller.dart';
+import '../cases/case_repository.dart';
+import 'riser_details_sheet.dart';
+import 'riser_feature_hit.dart';
+import 'zone_camera_bounds.dart';
 
 class MapPage extends ConsumerStatefulWidget {
   const MapPage({super.key});
@@ -20,11 +24,17 @@ class _MapPageState extends ConsumerState<MapPage> {
   MapLibreMapController? _map;
   Map<String, dynamic>? _profile;
   List<Map<String, dynamic>> _risers = [];
+  final Set<int> _pendingRiserIds = {};
   bool _loading = true;
   String? _error;
   String _search = '';
   String? _status;
   bool _sourceReady = false;
+  bool _selectingRiser = false;
+  bool _featureQueryInFlight = false;
+  bool _zoneFitDone = false;
+  bool _isSuperadmin = false;
+  String? _zoneMessage;
   bool _loadingRisers = false;
   bool _reloadAfterRequest = false;
   bool _hasMore = false;
@@ -72,8 +82,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     'type': 'FeatureCollection',
     'features': _risers.map((riser) => {
       'type': 'Feature',
+      'id': int.tryParse('${riser['id']}') ?? riser['id'],
       'geometry': {'type': 'Point', 'coordinates': [riser['longitude'], riser['latitude']]},
-      'properties': {'id': riser['id'], 'giscode': riser['r_giscode'] ?? riser['giscode'] ?? '', 'status': riser['maintenance_status'] ?? riser['status'] ?? 'default'},
+      'properties': {'id': int.tryParse('${riser['id']}') ?? riser['id'], 'riser_id': int.tryParse('${riser['id']}') ?? riser['id'], 'giscode': riser['r_giscode'] ?? riser['giscode'] ?? '', 'status': riser['maintenance_status'] ?? riser['status'] ?? 'default', 'sync_pending': _pendingRiserIds.contains(int.tryParse('${riser['id']}'))},
     }).toList(),
   };
 
@@ -89,20 +100,63 @@ class _MapPageState extends ConsumerState<MapPage> {
       await map.addGeoJsonSource('authorized-risers', _geoJson, promoteId: 'id');
       await map.addCircleLayer('authorized-risers', 'authorized-riser-circles', CircleLayerProperties(
         circleRadius: ['interpolate', ['linear'], ['zoom'], 5, 4, 15, 8],
-        circleColor: ['match', ['get', 'status'],
+        circleColor: ['case', ['==', ['get', 'sync_pending'], true], '#f59e0b', ['match', ['get', 'status'],
           'open', '#d97706', 'in_progress', '#2563eb', 'submitted', '#7c3aed',
-          'returned', '#dc2626', 'completed', '#059669',
-          'flagRiser', '#d97706', 'submitOperation', '#059669', 'resolveLead', '#2563eb', 'error', '#dc2626', '#607d8b'],
+          'returned', '#f97316', 'completed', '#059669',
+          'flagRiser', '#d97706', 'submitOperation', '#7c3aed', 'resolveLead', '#2563eb', 'error', '#dc2626', '#607d8b']],
         circleStrokeColor: '#ffffff', circleStrokeWidth: 2,
       ));
       await map.addSymbolLayer('authorized-risers', 'riser-labels', SymbolLayerProperties(
         textField: '{giscode}', textSize: 10, textColor: '#17212b',
         textHaloColor: '#ffffff', textHaloWidth: 1.2, textOffset: const [0, 1.1], textAnchor: 'top',
       ), minzoom: 14);
+      await map.addSymbolLayer('authorized-risers', 'riser-returned-markers', SymbolLayerProperties(
+        textField: ['match', ['get', 'status'], 'returned', '↻', ''],
+        textSize: 12, textColor: '#7c2d12', textHaloColor: '#ffffff', textHaloWidth: 1,
+      ));
       _sourceReady = true;
+      await _fitInitialZone();
       await _loadVisibleRisers();
     } catch (exception) {
       if (mounted) setState(() => _error = 'بارگذاری علمک‌ها ناموفق بود.');
+    }
+  }
+
+  Future<void> _fitInitialZone() async {
+    if (_zoneFitDone || _map == null) return;
+    _zoneFitDone = true;
+    try {
+      final response = await ref.read(sessionProvider).api!.dio.get('v1/mobile/map/zone');
+      final data = Map<String, dynamic>.from(response.data as Map);
+      _isSuperadmin = data['is_superadmin'] == true;
+      if (_isSuperadmin) {
+        debugPrint('[map] superadmin has global map access; no zone fit applied');
+        return;
+      }
+      final geometry = data['geometry'];
+      final bounds = geometry is Map ? ZoneCameraBounds.fromGeoJson(Map<String, dynamic>.from(geometry)) : null;
+      if (bounds == null) {
+        _zoneMessage = 'محدوده معتبر برای این حساب دریافت نشد؛ نمای پیش‌فرض نقشه نمایش داده می‌شود.';
+        debugPrint('[map] zone geometry missing or invalid');
+        if (mounted) setState(() {});
+        return;
+      }
+      debugPrint('[map] fitting zone id=${data['zone_id']} srid=${data['srid']} bbox=$bounds');
+      await _map!.animateCamera(CameraUpdate.newLatLngBounds(
+        LatLngBounds(southwest: LatLng(bounds.south, bounds.west), northeast: LatLng(bounds.north, bounds.east)),
+        left: 48, top: 110, right: 48, bottom: 72,
+      ));
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      _zoneMessage = status == 401 || status == 403
+          ? 'دسترسی دریافت محدوده نقشه تأیید نشد؛ نمای پیش‌فرض نمایش داده می‌شود.'
+          : 'محدوده نقشه دریافت نشد؛ نمای پیش‌فرض نمایش داده می‌شود.';
+      debugPrint('[map] zone endpoint failed: status=$status type=${error.type}');
+      if (mounted) setState(() {});
+    } catch (error) {
+      _zoneMessage = 'محدوده نقشه دریافت نشد؛ نمای پیش‌فرض نمایش داده می‌شود.';
+      debugPrint('[map] zone fit failed: ${error.runtimeType}');
+      if (mounted) setState(() {});
     }
   }
 
@@ -156,6 +210,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         _nextPage++;
         _hasMore = page['next_page_url'] != null && _risers.length < 2000;
       });
+      await _refreshPendingRisers();
       await _updateSource();
     } catch (exception) {
       if (mounted) { setState(() => _error = exception is DioException
@@ -170,36 +225,113 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
+  Future<void> _refreshPendingRisers() async {
+    final pending = await CaseRepository(ref.read(sessionProvider)).pending();
+    final ids = <int>{};
+    for (final row in pending) {
+      final raw = row['payload'];
+      if (raw is String) {
+        final payload = jsonDecode(raw);
+        if (payload is Map) {
+          final id = int.tryParse('${payload['riser_id'] ?? ''}');
+          if (id != null) ids.add(id);
+        }
+      } else if (raw is Map) {
+        final id = int.tryParse('${raw['riser_id'] ?? ''}');
+        if (id != null) ids.add(id);
+      }
+    }
+    if (mounted) setState(() { _pendingRiserIds..clear()..addAll(ids); });
+  }
+
   Future<void> _onMapClick(Point<double> point, LatLng coordinates) async {
-    final features = await _map?.queryRenderedFeatures(point, ['authorized-riser-circles'], null);
-    if (features == null || features.isEmpty) return;
-    final properties = Map<String, dynamic>.from(features.first['properties'] as Map? ?? {});
-    final id = int.tryParse('${properties['id'] ?? ''}');
-    if (id != null) await _showRiser(id);
+    debugPrint('[map] onMapClick received ready=$_sourceReady busy=$_selectingRiser query=$_featureQueryInFlight screenPx=(${point.x},${point.y}) geo=(${coordinates.longitude},${coordinates.latitude})');
+    if (!_sourceReady || _selectingRiser || _featureQueryInFlight) return;
+    final map = _map;
+    if (map == null) return;
+    _featureQueryInFlight = true;
+    try {
+      final hitArea = Rect.fromLTRB(point.x - 18, point.y - 18, point.x + 18, point.y + 18);
+      final features = await map.queryRenderedFeaturesInRect(hitArea,
+          ['authorized-riser-circles', 'riser-labels'], null);
+      debugPrint('[map] queryRenderedFeaturesInRect returned ${features.length} feature(s), rect=$hitArea');
+      final ids = <int>{};
+      for (final feature in features) {
+        final id = resolveAuthorizedRiserId(Map<String, dynamic>.from(feature as Map), _risers);
+        debugPrint('[map] candidate featureId=${feature['id']} props=${feature['properties']} authorizedId=$id');
+        if (id != null) {
+          ids.add(id);
+        } else {
+          debugPrint('[map] feature rejected: invalid ID or ID not in authorized riser list');
+        }
+      }
+      debugPrint('[map] authorized hit count=${ids.length}');
+      if (ids.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('در این نقطه علمک قابل انتخابی وجود ندارد.')));
+        return;
+      }
+      if (ids.length > 1) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('چند علمک نزدیک هم هستند؛ نقشه را بزرگ‌نمایی کنید.')));
+        return;
+      }
+      await _showRiser(ids.single);
+    } catch (error) {
+      debugPrint('[map] hit test exception ${error.runtimeType}: $error');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('انتخاب علمک از نقشه انجام نشد؛ دوباره تلاش کنید.')));
+    } finally {
+      _featureQueryInFlight = false;
+    }
   }
 
   Future<void> _showRiser(int id) async {
+    if (_selectingRiser || !mounted) return;
+    _selectingRiser = true;
     try {
-      final response = await ref.read(sessionProvider).api!.dio.get('v1/supervisor/risers/$id/details');
-      final body = Map<String, dynamic>.from(response.data as Map);
-      if (!mounted) return;
-      final riser = Map<String, dynamic>.from(body['riser'] as Map);
-      showModalBottomSheet<void>(context: context, isScrollControlled: true, showDragHandle: true, builder: (context) => SafeArea(child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(riser['r_giscode']?.toString() ?? riser['giscode']?.toString() ?? 'علمک', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text('وضعیت GIS'),
-          Text('پرونده‌ها: اطلاعات عملیات'),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: () { Navigator.pop(context); context.push('/case/new/$id'); }, icon: const Icon(Icons.add_location_alt_outlined), label: const Text('ثبت نیاز به تعمیر')),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(onPressed: () { Navigator.pop(context); context.push('/case/${(body['cases'] as List).isNotEmpty ? body['cases'][0]['id'] : 0}'); }, icon: const Icon(Icons.history), label: const Text('پرونده‌ها: اطلاعات عملیات'),),
-        ]),
-      )));
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('علمک')));
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => RiserDetailsSheet(
+          key: ValueKey('riser-$id'),
+          riserId: id,
+          loadDetails: (riserId) async {
+            final response = await ref.read(sessionProvider).api!.dio.get('v1/supervisor/risers/$riserId/details');
+            return Map<String, dynamic>.from(response.data as Map);
+          },
+          onCreateCase: (riserId) {
+            Navigator.pop(sheetContext);
+            _createCaseFromMap(riserId);
+          },
+          onOpenCase: (caseId) {
+            Navigator.pop(sheetContext);
+            _openCaseFromMap(caseId);
+          },
+          syncPending: _pendingRiserIds.contains(id),
+        ),
+      );
+    } finally {
+      _selectingRiser = false;
     }
+  }
+
+  Future<void> _createCaseFromMap(int riserId) async {
+    final result = await GoRouter.of(context).push('/case/new/$riserId');
+    if (!mounted) return;
+    await _refreshPendingRisers();
+    await _loadVisibleRisers();
+    if (!mounted) return;
+    if (result is Map && result['pending_riser_id'] == riserId) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('\u067e\u0631\u0648\u0646\u062f\u0647 \u0645\u062d\u0644\u06cc \u062f\u0631 \u0627\u0646\u062a\u0638\u0627\u0631 \u0647\u0645\u06af\u0627\u0645\u200c\u0633\u0627\u0632\u06cc \u0627\u0633\u062a.')));
+    } else if (result == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('\u0648\u0636\u0639\u06cc\u062a \u0639\u0644\u0645\u06a9 \u0627\u0632 \u0633\u0631\u0648\u0631 \u0628\u0627\u0632\u0628\u0627\u0631\u06af\u0630\u0627\u0631\u06cc \u0634\u062f.')));
+    }
+  }
+
+  Future<void> _openCaseFromMap(int caseId) async {
+    await GoRouter.of(context).push('/case/$caseId');
+    if (!mounted) return;
+    await _refreshPendingRisers();
+    await _loadVisibleRisers();
   }
 
   @override
@@ -221,9 +353,12 @@ class _MapPageState extends ConsumerState<MapPage> {
             minMaxZoomPreference: MinMaxZoomPreference((_profile!['min_zoom'] as num?)?.toDouble() ?? 0, (_profile!['max_zoom'] as num?)?.toDouble() ?? 19),
             onMapCreated: _onMapCreated, onStyleLoadedCallback: _onStyleLoaded,
             onMapClick: _onMapClick, onCameraIdle: _onCameraIdle,
+            featureTapsTriggersMapClick: true,
             compassEnabled: true, attributionButtonMargins: const Point(12, 72),
           ),
-          PositionedDirectional(start: 10, top: 10, child: Chip(avatar: const Icon(Icons.location_on_outlined, size: 18), label: Text('علمک در محدوده نقشه'))),
+          if (_zoneMessage != null) PositionedDirectional(start: 10, top: 10, child: Material(color: Colors.white.withValues(alpha: .94), borderRadius: BorderRadius.circular(12), child: Padding(padding: const EdgeInsets.all(9), child: Text(_zoneMessage!, textDirection: TextDirection.rtl, style: const TextStyle(fontSize: 11))))),
+          if (_zoneMessage == null) PositionedDirectional(start: 10, top: 10, child: Chip(avatar: const Icon(Icons.location_on_outlined, size: 18), label: Text(_isSuperadmin ? 'نمای سراسری نقشه' : 'علمک در محدوده نقشه'))),
+          PositionedDirectional(end: 10, top: 52, child: _MapLegend(pending: _pendingRiserIds.isNotEmpty)),
           PositionedDirectional(start: 10, bottom: 10, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(color: Colors.white.withValues(alpha: .92), borderRadius: BorderRadius.circular(10)), child: Text(_profile!['attribution']?.toString() ?? 'تنظیمات نقشه در دسترس نیست.', style: const TextStyle(fontSize: 11)))),
           if (_loadingRisers) const PositionedDirectional(top: 8, end: 8, child: CircularProgressIndicator()),
           if (_hasMore) PositionedDirectional(bottom: 58, end: 10, child: FilledButton.tonal(onPressed: _loadingRisers ? null : () => _loadVisibleRisers(reset: false), child: const Text('بارگذاری علمک‌های بیشتر'))),
@@ -231,4 +366,27 @@ class _MapPageState extends ConsumerState<MapPage> {
       ]),
     );
   }
+}
+
+class _MapLegend extends StatelessWidget {
+  const _MapLegend({required this.pending});
+  final bool pending;
+  @override
+  Widget build(BuildContext context) => Material(color: Colors.white.withValues(alpha: .94), borderRadius: BorderRadius.circular(10), child: Padding(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6), child: Wrap(spacing: 8, runSpacing: 4, children: [
+    _LegendItem(color: const Color(0xff607d8b), label: '\u0639\u0627\u062f\u06cc'),
+    _LegendItem(color: const Color(0xffd97706), label: '\u0646\u06cc\u0627\u0632\u0645\u0646\u062f \u062a\u0639\u0645\u06cc\u0631'),
+    _LegendItem(color: const Color(0xff2563eb), label: '\u062f\u0631 \u062d\u0627\u0644 \u062a\u0639\u0645\u06cc\u0631'),
+    _LegendItem(color: const Color(0xff7c3aed), label: '\u062f\u0631 \u0627\u0646\u062a\u0638\u0627\u0631 \u062a\u0623\u06cc\u06cc\u062f'),
+    _LegendItem(color: const Color(0xff059669), label: '\u062a\u0623\u06cc\u06cc\u062f\u0634\u062f\u0647'),
+    _LegendItem(color: const Color(0xfff97316), label: '\u0628\u0631\u06af\u0634\u062a\u06cc'),
+    if (pending) const _LegendItem(color: Color(0xfff59e0b), label: '\u062f\u0631 \u0635\u0641 \u0647\u0645\u06af\u0627\u0645\u200c\u0633\u0627\u0632\u06cc'),
+  ])));
+}
+
+class _LegendItem extends StatelessWidget {
+  const _LegendItem({required this.color, required this.label});
+  final Color color;
+  final String label;
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle)), const SizedBox(width: 4), Text(label, style: const TextStyle(fontSize: 10))]);
 }

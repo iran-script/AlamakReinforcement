@@ -37,12 +37,17 @@
                     <td>{{ $case->reporter?->name ?? '—' }}</td>
                     <td>{{ $case->assignedGroup?->name ?? '—' }}</td>
                     <td>{{ $case->identified_at?->format('Y-m-d') }}</td>
-                    <td>@if($case->operation){{ $case->operation->operation_date }} · {{ $case->operation->status }}@else—@endif</td>
+                    <td>@forelse($case->operations as $operation){{ $operation->operationCategory?->title }} · {{ $operation->operation_date }} · {{ $operation->status }}<br>@empty — @endforelse</td>
                     @if($canManageCases || $canReviewCases)
                     <td class="text-nowrap">
-                        @if($canReviewCases && $case->status === 'submitted' && $case->operation)
-                            <button class="btn btn-sm btn-success js-case-review" data-url="{{ route('maintenance-cases.review', $case) }}" data-decision="approved">تأیید</button>
-                            <button class="btn btn-sm btn-outline-danger js-case-review" data-url="{{ route('maintenance-cases.review', $case) }}" data-decision="returned">بازگشت برای اصلاح</button>
+                        @if($canReviewCases && $case->status === 'submitted' && $case->operations->isNotEmpty())
+                            @foreach($case->operations as $operation)
+                                <div class="small text-muted">{{ $operation->operationCategory?->title }} · {{ $operation->operation_date }} · {{ $operation->status }}</div>
+                                @if($operation->status === 'submitOperation')
+                                <button class="btn btn-sm btn-success js-case-review" data-url="{{ route('maintenance-cases.review', $case) }}" data-operation-id="{{ $operation->id }}" data-decision="approved">&#1578;&#1575;&#1740;&#1740;&#1583; #{{ $operation->id }}</button>
+                                <button class="btn btn-sm btn-outline-danger js-case-review" data-url="{{ route('maintenance-cases.review', $case) }}" data-operation-id="{{ $operation->id }}" data-decision="returned">&#1576;&#1575;&#1586;&#1711;&#1588;&#1578; #{{ $operation->id }}</button>
+                                @endif
+                            @endforeach
                         @endif
                         @if($canManageCases)
                             <details class="mt-2"><summary class="btn btn-sm btn-outline-primary d-inline-block">ویرایش</summary>
@@ -53,7 +58,7 @@
                                     </select>
                                     <label class="form-label small">توضیحات پرونده</label>
                                     <textarea class="form-control form-control-sm mb-2" name="description" rows="2">{{ $case->description }}</textarea>
-                                    @if($case->operation)
+                                    @if($case->operations->count() === 1)
                                         <label class="form-label small">تاریخ واقعی تعمیر</label>
                                         <input class="form-control form-control-sm mb-2" type="date" name="operation_date" value="{{ $case->operation->operation_date }}">
                                     @endif
@@ -79,7 +84,7 @@
     document.querySelectorAll('.js-case-review').forEach(button => button.addEventListener('click', async () => {
         const comment = button.dataset.decision === 'returned' ? window.prompt('دلیل بازگشت برای اصلاح را وارد کنید:') : '';
         if (button.dataset.decision === 'returned' && !comment) return;
-        const response = await fetch(button.dataset.url, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify({decision: button.dataset.decision, comment})});
+        const response = await fetch(button.dataset.url, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify({decision: button.dataset.decision, operation_id: Number(button.dataset.operationId), comment})});
         if (response.ok) window.location.reload(); else showMessage('ثبت تصمیم انجام نشد. دسترسی و وضعیت پرونده را بررسی کنید.', false);
     }));
     document.querySelectorAll('.js-case-edit').forEach(form => form.addEventListener('submit', async event => {

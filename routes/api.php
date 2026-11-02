@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('v1/mobile/health', [SupervisorMobileController::class, 'health'])->middleware('throttle:30,1');
 Route::post('login', [AuthController::class, 'login'])->middleware('throttle:6,1');
+Route::get('v1/mobile/map/zone', [SupervisorMobileController::class, 'mapZone'])->middleware('auth:sanctum');
 
 Route::prefix('v1/supervisor')->middleware(['auth:sanctum', 'mobile.supervisor'])->group(function (): void {
     Route::get('me', [SupervisorMobileController::class, 'me']);
@@ -40,6 +41,9 @@ Route::prefix('v1/supervisor')->middleware(['auth:sanctum', 'mobile.supervisor']
     Route::post('cases', [MaintenanceCaseController::class, 'store']);
     Route::get('cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase');
     Route::post('cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase');
+    Route::post('cases/{maintenanceCase}/operations', [MaintenanceCaseController::class, 'storeOperation'])->whereNumber('maintenanceCase');
+    Route::put('cases/{maintenanceCase}/operations/{operation}', [MaintenanceCaseController::class, 'updateOperation'])->whereNumber('maintenanceCase')->whereNumber('operation');
+    Route::post('cases/{maintenanceCase}/submit', [MaintenanceCaseController::class, 'submitOperations'])->whereNumber('maintenanceCase');
     Route::get('cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto');
     Route::get('photos/{operationImage}', [SupervisorMobileController::class, 'photo'])->whereNumber('operationImage');
     Route::get('map/config', [MapConfigurationController::class, 'show']);

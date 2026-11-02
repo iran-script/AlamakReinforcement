@@ -6,6 +6,7 @@ use App\Models\GroupUser;
 use App\Models\Material;
 use App\Models\MaintenanceCase;
 use App\Models\OperationImage;
+use App\Models\Operation;
 use App\Models\OperationCategory;
 use App\Models\Organization;
 use App\Models\User;
@@ -53,6 +54,65 @@ class MaintenanceCaseWorkflowTest extends TestCase
             'priority' => "\u{0645}\u{062A}\u{0648}\u{0633}\u{0637}",
             'identified_at' => now()->toDateTimeString(),
         ])->assertUnprocessable()->assertJsonValidationErrors(['client_uuid']);
+    }
+
+    public function test_mobile_case_supports_multiple_independent_draft_operations_and_idempotent_replay(): void
+    {
+        [$organization, $zone, $group] = $this->scope('multi-operation');
+        $supervisor = $this->user('multi-operation-supervisor', 'supervisor', $organization, $zone, $group);
+        $boss = $this->user('multi-operation-boss', 'boss', $organization, $zone, $group, ['operation.approve']);
+        $riserId = $this->riser($zone, 'MULTI-OP-'.uniqid());
+        $categoryA = OperationCategory::create(['title' => 'Welding', 'code' => 'weld-'.uniqid(), 'is_active' => true]);
+        $categoryB = OperationCategory::create(['title' => 'Painting', 'code' => 'paint-'.uniqid(), 'is_active' => true]);
+        $materialCategoryId = DB::table('material_categories')->insertGetId([
+            'title' => 'Multi operation test', 'code' => 'multi-op-cat-'.uniqid(), 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $materialA = Material::create(['material_category_id' => $materialCategoryId, 'title' => 'Electrode', 'code' => 'electrode-'.uniqid(), 'unit' => 'kg', 'default_price' => 0, 'is_active' => true]);
+        $materialB = Material::create(['material_category_id' => $materialCategoryId, 'title' => 'Paint', 'code' => 'paint-'.uniqid(), 'unit' => 'L', 'default_price' => 0, 'is_active' => true]);
+        $token = $supervisor->createToken('multi-operation-test', ['mobile:supervisor'])->plainTextToken;
+        $case = $this->withToken($token)->postJson('/api/v1/supervisor/cases', [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(), 'riser_id' => $riserId,
+            'priority' => 'متوسط', 'description' => 'Synthetic damage report', 'identified_at' => now()->toDateTimeString(),
+        ])->assertCreated()->json('case');
+
+        $firstKey = (string) \Illuminate\Support\Str::uuid();
+        $first = $this->withToken($token)->postJson('/api/v1/supervisor/cases/'.$case['id'].'/operations', [
+            'client_uuid' => $firstKey, 'operation_category_id' => $categoryA->id,
+            'operation_date' => '2026-11-01', 'description' => 'Synthetic weld', 'materials' => [$materialA->id => '2.5'],
+        ])->assertCreated()->json('operation');
+        $this->withToken($token)->postJson('/api/v1/supervisor/cases/'.$case['id'].'/operations', [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(), 'operation_category_id' => $categoryB->id,
+            'operation_date' => '2026-11-02', 'description' => 'Synthetic paint', 'materials' => [$materialB->id => '4'],
+        ])->assertCreated();
+        $this->assertSame(2, Operation::query()->where('maintenance_case_id', $case['id'])->count());
+        $this->assertDatabaseHas('operation_materials', ['operation_id' => $first['id'], 'material_id' => $materialA->id, 'qty' => 2.5]);
+        $detail = $this->withToken($token)->getJson('/api/v1/supervisor/cases/'.$case['id'])->assertOk();
+        $detail->assertJsonCount(2, 'case.operations');
+        $replay = $this->withToken($token)->postJson('/api/v1/supervisor/cases/'.$case['id'].'/operations', [
+            'client_uuid' => $firstKey, 'operation_category_id' => $categoryA->id,
+            'operation_date' => '2026-11-01', 'description' => 'Synthetic weld', 'materials' => [$materialA->id => '2.5'],
+        ])->assertOk()->assertJsonPath('idempotent_replay', true);
+        $this->assertSame($first['id'], $replay->json('operation.id'));
+        $this->assertSame(2, Operation::query()->where('maintenance_case_id', $case['id'])->count());
+
+        $version = $first['updated_at'];
+        $this->withToken($token)->putJson('/api/v1/supervisor/cases/'.$case['id'].'/operations/'.$first['id'], [
+            'version' => $version, 'description' => 'Updated synthetic weld', 'materials' => [$materialA->id => '3'],
+        ])->assertOk();
+        $this->withToken($token)->putJson('/api/v1/supervisor/cases/'.$case['id'].'/operations/'.$first['id'], [
+            'version' => $version, 'description' => 'Stale edit must conflict',
+        ])->assertStatus(409);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'operation.updated', 'operation_id' => $first['id']]);
+
+        $this->withToken($token)->postJson('/api/v1/supervisor/cases/'.$case['id'].'/submit')->assertOk();
+        $operationIds = Operation::query()->where('maintenance_case_id', $case['id'])->orderBy('id')->pluck('id');
+        $this->actingAs($boss)->postJson('/maintenance-cases/'.$case['id'].'/review', [
+            'operation_id' => $operationIds[0], 'decision' => 'approved',
+        ])->assertOk()->assertJsonPath('status', MaintenanceCase::STATUS_SUBMITTED);
+        $this->actingAs($boss)->postJson('/maintenance-cases/'.$case['id'].'/review', [
+            'operation_id' => $operationIds[1], 'decision' => 'approved',
+        ])->assertOk()->assertJsonPath('status', MaintenanceCase::STATUS_COMPLETED);
     }
 
     public function test_supervisor_can_mark_only_visible_risers_and_unprivileged_user_cannot(): void

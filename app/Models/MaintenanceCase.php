@@ -31,7 +31,9 @@ class MaintenanceCase extends Model
     public function lastEditor(): BelongsTo { return $this->belongsTo(User::class, 'last_edited_by'); }
     public function assignedGroup(): BelongsTo { return $this->belongsTo(GroupUser::class, 'assigned_group_id'); }
     public function operationCategory(): BelongsTo { return $this->belongsTo(OperationCategory::class); }
-    public function operation(): HasOne { return $this->hasOne(Operation::class); }
+    public function operations(): HasMany { return $this->hasMany(Operation::class); }
+    /** Backward-compatible accessor for legacy callers; new code must use operations(). */
+    public function operation(): HasOne { return $this->hasOne(Operation::class)->latestOfMany(); }
     public function photos(): HasMany { return $this->hasMany(OperationImage::class, 'maintenance_case_id'); }
 
     public function scopeVisibleTo($query, User $user)

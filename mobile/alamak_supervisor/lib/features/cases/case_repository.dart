@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -16,7 +15,6 @@ class CaseRepository {
 
   Future<String> savePending({required String kind, required int userId,
     required Map<String, dynamic> payload, required List<String> filePaths}) async {
-    if (kReleaseMode) throw StateError('Offline capture is disabled in release builds.');
     final id = _uuid.v4();
     final root = await getApplicationDocumentsDirectory();
     final directory = Directory(p.join(root.path, 'pending', '$userId', id));
@@ -57,6 +55,12 @@ class CaseRepository {
       final form = FormData.fromMap(data);
       if (row['kind'] == 'case') {
         await client.dio.post('v1/supervisor/cases', data: form);
+      } else if (row['kind'] == 'operation_draft') {
+        await client.dio.post('v1/supervisor/cases/${data.remove('case_id')}/operations', data: form);
+      } else if (row['kind'] == 'operation_update') {
+        final caseId = data.remove('case_id');
+        final operationId = data.remove('operation_id');
+        await client.dio.put('v1/supervisor/cases/$caseId/operations/$operationId', data: form);
       } else {
         final caseId = data.remove('case_id');
         await client.dio.post('v1/supervisor/cases/$caseId/operation', data: form);

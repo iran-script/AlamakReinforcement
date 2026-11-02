@@ -11,9 +11,37 @@ use App\Models\OperationCategory;
 use App\Models\Riser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 class SupervisorMobileController extends Controller
 {
+    public function mapZone(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user && ($user->isSuperAdmin() || ($user->hasRole('supervisor', 'web') && $user->can('map.view'))), 403);
+        if ($user->isSuperAdmin()) {
+            return response()->json(['is_superadmin' => true, 'geometry' => null])->header('Cache-Control', 'private, no-store');
+        }
+        abort_unless($user->zone_id && $user->organization_id, 403, 'User zone or organization is not assigned.');
+
+        $zone = DB::table('zone')
+            ->where('id', $user->zone_id)
+            ->where('organization_id', $user->organization_id)
+            ->whereNotNull('geom')
+            ->select('id', 'name')
+            ->selectRaw('ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geometry')
+            ->first();
+        abort_unless($zone, 404, 'Assigned zone boundary is unavailable.');
+
+        return response()->json([
+            'is_superadmin' => false,
+            'zone_id' => (int) $zone->id,
+            'zone_name' => $zone->name,
+            'geometry' => json_decode($zone->geometry, true),
+            'srid' => 4326,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     public function me(Request $request)
     {
         $user = $request->user();
@@ -60,6 +88,7 @@ class SupervisorMobileController extends Controller
             ->select('riser.id', 'riser.r_giscode', 'riser.giscode', 'riser.status', 'riser.updated_at')
             ->selectSub(MaintenanceCase::query()->select('status')->whereColumn('maintenance_cases.riser_id', 'riser.id')
                 ->where('maintenance_cases.assigned_group_id', $request->user()->group_user_id)
+                ->orderByRaw("CASE WHEN status IN ('open', 'in_progress', 'submitted', 'returned') THEN 0 ELSE 1 END")
                 ->latest('identified_at')->limit(1), 'maintenance_status')
             ->selectRaw('ST_X(ST_PointOnSurface(ST_Transform(riser.geom, 4326))) AS longitude')
             ->selectRaw('ST_Y(ST_PointOnSurface(ST_Transform(riser.geom, 4326))) AS latitude')
@@ -92,7 +121,8 @@ class SupervisorMobileController extends Controller
             'zone' => $user->zone?->only(['id', 'name']),
             'group' => $user->groupUser?->only(['id', 'name']),
             'operation_categories' => OperationCategory::query()->where('is_active', true)->orderBy('sort')->orderBy('title')->get(['id', 'title', 'code']),
-            'materials' => Material::query()->where('is_active', true)->orderBy('title')->get(['id', 'title', 'unit']),
+            'materials' => Material::query()->with('category:id,title,code')->where('is_active', true)
+                ->orderBy('title')->get(['id', 'title', 'code', 'unit', 'material_category_id']),
         ]);
     }
 
@@ -106,7 +136,9 @@ class SupervisorMobileController extends Controller
             ->firstOrFail();
         $cases = MaintenanceCase::query()->visibleTo($user)->where('riser_id', $riser->id)
             ->where('assigned_group_id', $user->group_user_id)
-            ->with(['reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'lastEditor:id,name', 'photos:id,maintenance_case_id,operation_id,type,created_at'])
+            ->with(['reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'lastEditor:id,name', 'photos:id,maintenance_case_id,operation_id,type,created_at',
+                'operations.operationCategory:id,title', 'operations.operationMaterial:id,title,unit', 'operations.images:id,operation_id,maintenance_case_id,type,created_at',
+                'operations.user:id,name', 'operations.supervisors:id,name'])
             ->latest('identified_at')->get();
         $operations = Operation::query()->where('riser_id', $riser->id)
             ->where('group_user_id', $user->group_user_id)
@@ -138,6 +170,25 @@ class SupervisorMobileController extends Controller
                 'description' => $case->description, 'identified_at' => $case->identified_at,
                 'submitted_at' => $case->submitted_at, 'reporter' => $case->reporter?->name,
                 'group' => $case->assignedGroup?->name, 'operation_category' => $case->operationCategory?->title,
+                'operations' => $case->operations->map(fn (Operation $operation) => [
+                    'id' => $operation->id, 'date' => $operation->operation_date, 'status' => $operation->status,
+                    'description' => $operation->description, 'updated_at' => $operation->updated_at,
+                    'created_by' => $operation->user?->name,
+                    'reviewers' => $operation->supervisors->map(fn ($reviewer) => [
+                        'name' => $reviewer->name, 'status' => $reviewer->pivot->status,
+                        'comment' => $reviewer->pivot->comment, 'approved_at' => $reviewer->pivot->approved_at,
+                    ])->values(),
+                    'category' => $operation->operationCategory?->title,
+                    'operation_category_id' => $operation->operation_category_id,
+                    'materials' => $operation->operationMaterial->map(fn ($material) => [
+                        'id' => $material->id, 'title' => $material->title, 'unit' => $material->unit,
+                        'qty' => (string) $material->pivot->qty,
+                    ])->values(),
+                    'photos' => $operation->images->map(fn (OperationImage $image) => [
+                        'id' => $image->id, 'type' => $image->type,
+                        'url' => url('/api/v1/supervisor/photos/'.$image->id),
+                    ])->values(),
+                ])->values(),
                 'photos' => $case->photos->map(fn (OperationImage $image) => [
                     'id' => $image->id, 'type' => $image->type,
                     'url' => url('/api/v1/supervisor/photos/'.$image->id),

@@ -30,7 +30,6 @@ class SessionController extends ChangeNotifier {
   ApiClient? get api => serverUrl == null ? null : ApiClient(serverUrl!, token: token);
 
   Future<void> initialize() async {
-    if (kReleaseMode) await drafts.clearAll();
     serverUrl = await _storage.read(key: _urlKey);
     token = await _storage.read(key: _tokenKey);
     final cached = await _storage.read(key: _userKey);

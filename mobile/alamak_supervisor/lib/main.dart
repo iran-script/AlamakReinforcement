@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'features/auth/session_controller.dart';
 import 'features/auth/session_pages.dart';
 import 'features/cases/case_pages.dart';
+import 'features/cases/repair_case_page.dart';
 import 'features/shell/supervisor_shell.dart';
 
 void main() => runApp(const ProviderScope(child: AlamakSupervisorApp()));
@@ -40,8 +41,8 @@ class _AlamakSupervisorAppState extends ConsumerState<AlamakSupervisorApp> {
         GoRoute(path: '/server', builder: (_, _) => const ServerSetupPage()),
         GoRoute(path: '/login', builder: (_, _) => const SupervisorLoginPage()),
         GoRoute(path: '/app/:tab', builder: (_, state) => SupervisorShell(tab: state.pathParameters['tab'] ?? 'home')),
-        GoRoute(path: '/case/new/:riserId', builder: (_, state) => NewCasePage(riserId: int.parse(state.pathParameters['riserId']!))),
-        GoRoute(path: '/case/:caseId', builder: (_, state) => CaseDetailPage(caseId: int.parse(state.pathParameters['caseId']!))),
+        GoRoute(path: '/case/new/:riserId', builder: (_, state) => NewCasePage(riserId: int.parse(state.pathParameters['riserId']!), returnToMap: true)),
+        GoRoute(path: '/case/:caseId', builder: (_, state) => RepairCasePage(caseId: int.parse(state.pathParameters['caseId']!))),
       ],
     );
     session.initialize();

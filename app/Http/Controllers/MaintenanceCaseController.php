@@ -31,7 +31,7 @@ class MaintenanceCaseController extends Controller
         abort_unless($user->isSuperAdmin() || ($visibleGroupIds !== [] && $user->zone_id), 403);
         $cases = MaintenanceCase::query()->visibleTo($user)
             ->when(! $user->isSuperAdmin(), fn ($query) => $query->whereIn('assigned_group_id', $visibleGroupIds))
-            ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'operation:id,status,operation_date'])
+            ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'operations:id,maintenance_case_id,status,operation_date,operation_category_id'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($user->isSuperAdmin() && $request->filled('group'), fn ($query) => $query->where('assigned_group_id', $request->integer('group')))
             ->when($request->filled('supervisor'), fn ($query) => $query->where('reported_by', $request->integer('supervisor')))
@@ -111,8 +111,9 @@ class MaintenanceCaseController extends Controller
             'riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name',
             'operationCategory:id,title', 'photos:id,maintenance_case_id,operation_id,riser_id,type,uploaded_by',
             'lastEditor:id,name', 'operation.operationCategory', 'operation.operationMaterial', 'operation.images',
+            'operations.operationCategory', 'operations.operationMaterial', 'operations.images', 'operations.user:id,name', 'operations.supervisors:id,name',
         ]);
-        $casePhotos = $case->photos->merge($case->operation?->images ?? collect())->unique('id')->values();
+        $casePhotos = $case->photos->merge($case->operations->flatMap->images)->unique('id')->values();
         $casePhotos->each(function (OperationImage $photo) use ($request): void {
             $photo->makeHidden(['path', 'original_name']);
             $photo->setAttribute('url', $request->is('api/v1/supervisor/*')
@@ -120,6 +121,23 @@ class MaintenanceCaseController extends Controller
                 : route('maintenance-cases.photos.show', $photo));
         });
         $case->setRelation('photos', $casePhotos);
+        $case->setRelation('operations', $case->operations->map(fn (Operation $operation) => [
+            'id' => $operation->id, 'status' => $operation->status, 'operation_date' => $operation->operation_date,
+            'description' => $operation->description, 'updated_at' => $operation->updated_at?->toISOString(),
+            'operation_category' => $operation->operationCategory,
+            'created_by' => $operation->user?->name,
+            'reviewers' => $operation->supervisors->map(fn (User $reviewer) => [
+                'name' => $reviewer->name, 'status' => $reviewer->pivot->status,
+                'comment' => $reviewer->pivot->comment, 'approved_at' => $reviewer->pivot->approved_at,
+            ])->values(),
+            'materials' => $operation->operationMaterial->map(fn ($material) => [
+                'id' => $material->id, 'title' => $material->title, 'unit' => $material->unit, 'qty' => (string) $material->pivot->qty,
+            ])->values(),
+            'photos' => $operation->images->map(fn (OperationImage $image) => [
+                'id' => $image->id, 'type' => $image->type, 'url' => $request->is('api/v1/supervisor/*')
+                    ? url('/api/v1/supervisor/photos/'.$image->id) : route('maintenance-cases.photos.show', $image),
+            ])->values(),
+        ])->values());
 
         return response()->json(['case' => $case]);
     }
@@ -247,6 +265,163 @@ class MaintenanceCaseController extends Controller
         return response()->json(['operation' => $operation], 201);
     }
 
+    /** Store one editable operation under an existing repair case. */
+    public function storeOperation(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->requireMobileIdempotencySchema($request, 'operations');
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+
+        $data = $request->validate([
+            'client_uuid' => ['required', 'uuid'],
+            'operation_date' => ['required', 'date'],
+            'operation_category_id' => ['required', 'integer', 'exists:operation_categories,id'],
+            'description' => ['nullable', 'string', 'max:10000'],
+            'materials' => ['nullable', 'array'],
+            'materials.*' => ['numeric', 'gt:0', 'max:99999999.99'],
+            'photos_after' => ['nullable', 'array', 'max:20'],
+            'photos_after.*' => ['image', 'max:10240'],
+        ]);
+
+        abort_unless(in_array($maintenanceCase->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409);
+        $existing = Operation::query()->where('client_uuid', $data['client_uuid'])->first();
+        if ($existing) {
+            abort_unless((int) $existing->maintenance_case_id === (int) $maintenanceCase->id
+                && (int) $existing->user_id === (int) $actor->id, 409);
+            return response()->json(['operation' => $existing->load(['operationMaterial', 'operationCategory', 'images']), 'idempotent_replay' => true]);
+        }
+
+        $materialIds = array_map('intval', array_keys($data['materials'] ?? []));
+        abort_if($materialIds !== [] && Material::query()->where('is_active', true)->whereIn('id', $materialIds)->count() !== count(array_unique($materialIds)), 422, 'One or more materials are unavailable.');
+        $operation = DB::transaction(function () use ($request, $data, $actor, $maintenanceCase): Operation {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
+            abort_unless(in_array($case->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409);
+            $operation = Operation::query()->create([
+                'riser_id' => $case->riser_id,
+                'maintenance_case_id' => $case->id,
+                'group_user_id' => $case->assigned_group_id,
+                'operation_category_id' => $data['operation_category_id'],
+                'operation_date' => $data['operation_date'],
+                'status' => 'draft',
+                'priority' => $case->priority,
+                'description' => $data['description'] ?? null,
+                'user_id' => $actor->id,
+                'contract_id' => $actor->contract_id,
+                'client_uuid' => $data['client_uuid'],
+            ]);
+            $this->replaceOperationMaterials($operation, $data['materials'] ?? []);
+            $this->audit->record('operation.created', $operation, null, $this->audit->attributesFor($operation));
+            $this->audit->record('operation.materials_updated', $operation, null, ['materials' => $this->materialSnapshot($operation)]);
+            foreach ($request->file('photos_after', []) as $file) {
+                $photo = $this->storePhoto($file, $actor, $case->riser, $case, $operation, 'after');
+                $this->audit->record('operation.photo_added', $photo, null, ['photo_id' => $photo->id, 'operation_id' => $operation->id]);
+            }
+            $before = $this->audit->attributesFor($case);
+            $case->update(['status' => MaintenanceCase::STATUS_IN_PROGRESS, 'last_edited_by' => $actor->id]);
+            $this->audit->record('maintenance_case.operation_added', $case, $before, $this->audit->attributesFor($case), ['operation_id' => $operation->id]);
+            return $operation->load(['operationMaterial', 'operationCategory', 'images']);
+        });
+
+        return response()->json(['operation' => $operation], 201);
+    }
+
+    /** Edit an unsubmitted operation using an updated_at concurrency token. */
+    public function updateOperation(Request $request, MaintenanceCase $maintenanceCase, Operation $operation)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id
+            && (int) $operation->maintenance_case_id === (int) $maintenanceCase->id, 404);
+        abort_unless(in_array($maintenanceCase->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true)
+            && in_array($operation->status, ['draft', 'need_revision'], true), 409);
+        $data = $request->validate([
+            'version' => ['required', 'date'],
+            'operation_date' => ['sometimes', 'required', 'date'],
+            'operation_category_id' => ['sometimes', 'required', 'integer', 'exists:operation_categories,id'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
+            'materials' => ['sometimes', 'array'],
+            'materials.*' => ['numeric', 'gt:0', 'max:99999999.99'],
+            'photos_after' => ['nullable', 'array', 'max:20'],
+            'photos_after.*' => ['image', 'max:10240'],
+        ]);
+        if (! $operation->updated_at || $operation->updated_at->toISOString() !== \Illuminate\Support\Carbon::parse($data['version'])->toISOString()) {
+            return response()->json(['message' => 'This operation changed elsewhere. Refresh before editing.'], 409);
+        }
+        $materialIds = array_map('intval', array_keys($data['materials'] ?? []));
+        abort_if($materialIds !== [] && Material::query()->where('is_active', true)->whereIn('id', $materialIds)->count() !== count(array_unique($materialIds)), 422, 'One or more materials are unavailable.');
+
+        $updated = DB::transaction(function () use ($request, $data, $actor, $maintenanceCase, $operation): Operation {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
+            abort_unless(in_array($case->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409);
+            $locked = Operation::query()->lockForUpdate()->where('maintenance_case_id', $maintenanceCase->id)->findOrFail($operation->id);
+            abort_unless(in_array($locked->status, ['draft', 'need_revision'], true), 409);
+            if ($locked->updated_at->toISOString() !== \Illuminate\Support\Carbon::parse($data['version'])->toISOString()) {
+                abort(409, 'This operation changed elsewhere. Refresh before editing.');
+            }
+            $before = $this->audit->attributesFor($locked);
+            $materialsBefore = $this->materialSnapshot($locked);
+            $locked->fill(array_intersect_key($data, array_flip(['operation_date', 'operation_category_id', 'description'])));
+            $locked->save();
+            if (array_key_exists('materials', $data)) $this->replaceOperationMaterials($locked, $data['materials']);
+            $this->audit->record('operation.updated', $locked, $before, $this->audit->attributesFor($locked));
+            if (array_key_exists('materials', $data)) $this->audit->record('operation.materials_updated', $locked, ['materials' => $materialsBefore], ['materials' => $this->materialSnapshot($locked)]);
+            $caseBefore = $this->audit->attributesFor($case);
+            $case->update(['last_edited_by' => $actor->id]);
+            $this->audit->record('maintenance_case.operation_updated', $case, $caseBefore, $this->audit->attributesFor($case), ['operation_id' => $locked->id]);
+            foreach ($request->file('photos_after', []) as $file) {
+                $photo = $this->storePhoto($file, $actor, $case->riser, $case, $locked, 'after');
+                $this->audit->record('operation.photo_added', $photo, null, ['photo_id' => $photo->id, 'operation_id' => $locked->id]);
+            }
+            return $locked->load(['operationMaterial', 'operationCategory', 'images']);
+        });
+        return response()->json(['operation' => $updated]);
+    }
+
+    /** Submit all draft/revision operations for the case as one review batch. */
+    public function submitOperations(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+        $boss = User::query()->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))
+            ->whereHas('managedGroups', fn ($groups) => $groups->whereKey($maintenanceCase->assigned_group_id)
+                ->where('group_users.organization_id', $actor->organization_id)->where('group_users.zone_id', $actor->zone_id))
+            ->where('zone_id', $actor->zone_id)->where('organization_id', $actor->organization_id)->orderBy('id')->first();
+        abort_unless($boss, 422, 'No authorized area reviewer is assigned.');
+
+        $case = DB::transaction(function () use ($actor, $boss, $maintenanceCase): MaintenanceCase {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
+            abort_unless(in_array($case->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409);
+            $operations = $case->operations()->lockForUpdate()->whereIn('status', ['draft', 'need_revision'])->get();
+            abort_if($operations->isEmpty(), 422, 'Add or revise at least one operation before submitting.');
+            foreach ($operations as $operation) {
+                $operation->update(['status' => 'submitOperation']);
+                OperationSupervisor::query()->updateOrCreate(['operation_id' => $operation->id, 'user_id' => $boss->id], [
+                    'status' => 'pending', 'comment' => null, 'approved_at' => null, 'order' => 1,
+                ]);
+                WorkflowTransfer::query()->create([
+                    'user_id_from' => $actor->id, 'user_id_to' => $boss->id,
+                    'riser_id' => $case->riser_id, 'operation_id' => $operation->id,
+                    'type' => WorkflowTransfer::TYPE_OPERATION_REVIEW_REQUEST,
+                    'title' => 'Field repair report submitted for area review',
+                    'comment' => $operation->description ?? $case->description, 'send_date' => now(),
+                ]);
+            }
+            $before = $this->audit->attributesFor($case);
+            $case->update(['status' => MaintenanceCase::STATUS_SUBMITTED, 'submitted_at' => now(), 'last_edited_by' => $actor->id]);
+            $this->audit->record('maintenance_case.submitted', $case, $before, $this->audit->attributesFor($case), ['operation_ids' => $operations->modelKeys()]);
+            return $case;
+        });
+        return response()->json(['success' => true, 'case' => $case->load('operations.operationMaterial')]);
+    }
+
     public function review(Request $request, MaintenanceCase $maintenanceCase)
     {
         $actor = $request->user();
@@ -255,10 +430,17 @@ class MaintenanceCaseController extends Controller
         abort_unless($actor->managesGroup((int) $maintenanceCase->assigned_group_id), 403);
         $data = $request->validate([
             'decision' => ['required', Rule::in(['approved', 'returned'])],
+            'operation_id' => ['nullable', 'integer', 'exists:operations,id'],
             'comment' => ['nullable', 'required_if:decision,returned', 'string', 'max:5000'],
         ]);
 
-        $operation = $maintenanceCase->operation()->firstOrFail();
+        $caseOperations = $maintenanceCase->operations();
+        if ($data['operation_id'] ?? null) {
+            $operation = $caseOperations->whereKey($data['operation_id'])->firstOrFail();
+        } else {
+            abort_if($caseOperations->count() > 1, 422, 'Select an operation to review.');
+            $operation = $caseOperations->firstOrFail();
+        }
         DB::transaction(function () use ($actor, $data, $maintenanceCase, $operation): void {
             $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
             $pivot = OperationSupervisor::query()->where('operation_id', $operation->id)->where('user_id', $actor->id)->lockForUpdate()->firstOrFail();
@@ -271,9 +453,11 @@ class MaintenanceCaseController extends Controller
                 'approved_at' => $approved ? now() : null,
             ]);
             $operation->update(['status' => $approved ? 'approved' : 'need_revision']);
+            $hasRevision = $case->operations()->where('status', 'need_revision')->exists();
+            $hasPending = $case->operations()->where('status', '!=', 'approved')->exists();
             $case->update([
-                'status' => $approved ? MaintenanceCase::STATUS_COMPLETED : MaintenanceCase::STATUS_RETURNED,
-                'closed_at' => $approved ? now() : null,
+                'status' => $hasRevision ? MaintenanceCase::STATUS_RETURNED : ($hasPending ? MaintenanceCase::STATUS_SUBMITTED : MaintenanceCase::STATUS_COMPLETED),
+                'closed_at' => $approved && ! $hasPending ? now() : null,
                 'last_edited_by' => $actor->id,
             ]);
             WorkflowTransfer::query()->where('operation_id', $operation->id)
@@ -316,6 +500,9 @@ class MaintenanceCaseController extends Controller
             'materials' => ['sometimes', 'array'],
             'materials.*' => ['numeric', 'gt:0', 'max:99999999.99'],
         ]);
+        $operationSpecificChanges = array_intersect(['operation_date', 'operation_category_id', 'materials'], array_keys($data));
+        abort_if($operationSpecificChanges !== [] && $maintenanceCase->operations()->count() > 1, 409,
+            'Edit an individual operation when this case contains multiple operations.');
         if (array_key_exists('materials', $data)) {
             $ids = array_map('intval', array_keys($data['materials']));
             if ($ids !== [] && Material::query()->where('is_active', true)->whereIn('id', $ids)->count() !== count(array_unique($ids))) {
@@ -336,7 +523,7 @@ class MaintenanceCaseController extends Controller
 
         DB::transaction(function () use ($actor, $data, $maintenanceCase): void {
             $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
-            $operation = $case->operation()->lockForUpdate()->first();
+            $operation = $case->operations()->when($case->operations()->count() === 1)->lockForUpdate()->first();
             $caseBefore = $this->audit->attributesFor($case);
             $operationBefore = $operation ? $this->audit->attributesFor($operation) : null;
             $materialsBefore = $operation ? $this->materialSnapshot($operation) : null;
@@ -368,7 +555,7 @@ class MaintenanceCaseController extends Controller
             $this->audit->record('maintenance_case.area_manager_edited', $case, $caseBefore, $this->audit->attributesFor($case));
         });
 
-        return response()->json(['success' => true, 'case' => $maintenanceCase->fresh()->load('operation.operationMaterial')]);
+        return response()->json(['success' => true, 'case' => $maintenanceCase->fresh()->load('operations.operationMaterial')]);
     }
 
     private function authorizeFieldEntry(User $user): void
@@ -427,5 +614,20 @@ class MaintenanceCaseController extends Controller
             'unit' => $material->unit,
             'qty' => (string) $material->pivot->qty,
         ])->values()->all();
+    }
+
+    private function replaceOperationMaterials(Operation $operation, array $materials): void
+    {
+        $operation->operationMaterial()->detach();
+        foreach ($materials as $materialId => $quantity) {
+            OperationMaterial::query()->create([
+                'operation_id' => $operation->id,
+                'material_id' => (int) $materialId,
+                'qty' => $quantity,
+                'price' => 0,
+                'total' => 0,
+                'description' => 'Field maintenance record; quantities only.',
+            ]);
+        }
     }
 }
