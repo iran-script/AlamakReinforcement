@@ -6,6 +6,7 @@ use App\Models\FormDefinition;
 use App\Models\GisMapSetting;
 use App\Models\Menu;
 use App\Models\Operation;
+use App\Models\Organization;
 use App\Models\User;
 use App\Models\WorkflowDefinition;
 use App\Models\Zone;
@@ -24,6 +25,7 @@ class MenuService
         'operations.index' => [Operation::class, 'viewAny'],
         'zones.manage' => [Zone::class, 'viewAny'],
         'users.index' => [User::class, 'viewAny'],
+        'organizations.index' => [Organization::class, 'viewAny'],
         'platform.forms.index' => [FormDefinition::class, 'viewAny'],
         'platform.workflows.index' => [WorkflowDefinition::class, 'viewAny'],
         'settings.gis.edit' => [GisMapSetting::class, 'create'],
@@ -38,6 +40,7 @@ class MenuService
         'material.index' => 'material.view',
         'reports.index' => 'report.view',
         'users.index' => 'user.view',
+        'organizations.index' => null,
         'roles.index' => 'role.view',
         'groupusers.index' => 'groupuser.view',
         'contract.index' => 'contract.view',

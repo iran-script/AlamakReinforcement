@@ -31,8 +31,26 @@
 @csrf
 @method('PUT')
 
+@if($user->organization_id === null && (($user->groupUser && $user->groupUser->organization_id !== null) || ($user->zone && $user->zone->organization_id !== null)))
+<div class="alert alert-warning">این کاربر به GroupUser یا Zone سازمانی متصل است اما سازمان کاربر خالی است؛ قبل از ذخیره، سازمان سازگار را انتخاب کنید.</div>
+@endif
+
 
 <div class="row g-3">
+
+@if($isSuperAdmin)
+<div class="col-md-6">
+    <label class="form-label" for="organization_id">سازمان</label>
+    <select id="organization_id" name="organization_id" class="form-select @error('organization_id') is-invalid @enderror">
+        <option value="">بدون سازمان</option>
+        @foreach($organizations as $organization)
+            <option value="{{ $organization->id }}" @selected(old('organization_id', $user->organization_id) == $organization->id)>{{ $organization->name }} ({{ $organization->code }})</option>
+        @endforeach
+    </select>
+    @error('organization_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+    <div class="form-text">سازمان GroupUser و Zone باید با این مقدار سازگار باشد.</div>
+</div>
+@endif
 
 
 
@@ -179,7 +197,7 @@
 
 @foreach($groupusers as $group)
 
-<option value="{{ $group->id }}"
+<option value="{{ $group->id }}" data-organization="{{ $group->organization_id }}"
 @selected(old('group_user_id',$user->group_user_id)==$group->id)>
 
 {{ $group->name }}
@@ -227,7 +245,7 @@
 
 @foreach($zones as $zone)
 
-<option value="{{ $zone->id }}"
+<option value="{{ $zone->id }}" data-organization="{{ $zone->organization_id }}"
 @selected(old('zone_id',$user->zone_id)==$zone->id)>
 
 {{ $zone->name }}
@@ -375,3 +393,27 @@
 
 
 @endsection
+
+@push('scripts')
+@if($isSuperAdmin)
+<script>
+(() => {
+    const organization = document.getElementById('organization_id');
+    const filter = () => {
+        ['group_user_id', 'zone_id'].forEach(id => {
+            const select = document.querySelector(`[name="${id}"]`);
+            if (!select) return;
+            [...select.options].forEach(option => {
+                if (!option.value) return;
+                const visible = !organization.value || option.dataset.organization === organization.value;
+                option.hidden = !visible;
+                if (!visible) option.selected = false;
+            });
+        });
+    };
+    organization.addEventListener('change', filter);
+    filter();
+})();
+</script>
+@endif
+@endpush

@@ -51,6 +51,27 @@ class MapProfileService
         ];
     }
 
+    /**
+     * Return the active profile in the form consumed by server-rendered maps.
+     * API/mobile clients intentionally receive relative URLs, while browser
+     * views need an absolute URL when the configured profile uses an internal
+     * path.
+     *
+     * @return array<string, mixed>
+     */
+    public function payloadForView(User $user): array
+    {
+        $payload = $this->payload($this->activeFor($user));
+
+        foreach (['tile_url', 'style_url'] as $key) {
+            if (is_string($payload[$key]) && str_starts_with($payload[$key], '/')) {
+                $payload[$key] = url($payload[$key]);
+            }
+        }
+
+        return $payload;
+    }
+
     private function isUsable(GisMapSetting $profile): bool
     {
         return $this->urls->error((string) $profile->base_tile_url, true) === null

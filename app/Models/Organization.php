@@ -19,6 +19,21 @@ class Organization extends Model
         return $this->hasMany(Asset::class);
     }
 
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
+    }
+
+    public function zones(): HasMany
+    {
+        return $this->hasMany(Zone::class);
+    }
+
+    public function groupUsers(): HasMany
+    {
+        return $this->hasMany(GroupUser::class);
+    }
+
     public function workOrderTypes(): HasMany
     {
         return $this->hasMany(WorkOrderType::class);

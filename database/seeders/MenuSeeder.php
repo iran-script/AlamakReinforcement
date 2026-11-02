@@ -37,6 +37,7 @@ class MenuSeeder extends Seeder
         ]],
         ['key' => '__group:system', 'title' => 'مدیریت سیستم', 'icon' => 'bi bi-gear', 'sort' => 60, 'children' => [
             ['route' => 'users.index', 'title' => 'مدیریت کاربران', 'icon' => 'bi bi-people', 'permission' => 'user.view'],
+            ['route' => 'organizations.index', 'title' => 'مدیریت سازمان‌ها', 'icon' => 'bi bi-building', 'permission' => null],
             ['route' => 'roles.index', 'title' => 'نقش‌ها و مجوزها', 'icon' => 'bi bi-shield-lock', 'permission' => 'role.view'],
             ['route' => 'groupusers.index', 'title' => 'گروه‌های کاربران', 'icon' => 'bi bi-people-fill', 'permission' => 'groupuser.view'],
             ['route' => 'contract.index', 'title' => 'مدیریت قراردادها', 'icon' => 'bi bi-file-earmark-text', 'permission' => 'contract.view'],

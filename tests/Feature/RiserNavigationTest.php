@@ -207,9 +207,16 @@ class RiserNavigationTest extends TestCase
         $this->stubEmptyMenus();
         $risers = new LengthAwarePaginator([], 0, 20, 1, ['path' => '/riser/index']);
 
-        $html = view('riser.index', ['risers' => $risers])->render();
+        $html = view('riser.index', [
+            'risers' => $risers,
+            'statuses' => collect(),
+            'totalVisible' => 0,
+            'withCode' => 0,
+            'perPage' => 25,
+            'filters' => [],
+        ])->render();
 
-        $this->assertStringContainsString('<td colspan="4"', $html);
+        $this->assertStringContainsString('<td colspan="6"', $html);
     }
 
     private function userWithRoleCheck(bool $isSuperadmin): User

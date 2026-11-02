@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use App\Services\MenuService;
 use App\Models\Operation;
+use App\Models\Organization;
 use App\Models\Zone;
+use App\Policies\OrganizationPolicy;
 use App\Policies\OperationPolicy;
 use App\Policies\ZonePolicy;
 use App\Policies\UserPolicy;
@@ -31,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Operation::class, OperationPolicy::class);
+        Gate::policy(Organization::class, OrganizationPolicy::class);
         Gate::policy(Zone::class, ZonePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
 

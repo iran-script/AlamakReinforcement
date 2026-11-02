@@ -378,7 +378,7 @@
 
                 <div class="col-lg-4 text-end">
 
-                    <a href="{{ url()->previous() }}" class="btn btn-secondary">
+                    <a href="{{ $returnTo ?? route('riserIndex') }}" class="btn btn-secondary">
 
                         <i class="bi bi-arrow-right"></i>
 
@@ -675,6 +675,13 @@
                     </div>
 
                     <div class="card-body p-0">
+
+                        @if(! $hasActiveMapProfile)
+                            <div class="alert alert-warning m-3" role="alert">
+                                پروفایل فعال نقشه پیدا نشد؛ نقشه با تنظیم پیش‌فرض سامانه بارگذاری می‌شود.
+                            </div>
+                        @endif
+                        <div id="miniMapError" class="alert alert-danger d-none m-3" role="alert"></div>
 
                         <div id="miniMap" style="height:320px;background:#ddd;border-radius:0 0 15px 15px;">
 
@@ -1131,6 +1138,7 @@
     <script>
         const riserId = {{ $id ?? request()->route('id') }};
         const riserDetailsRoute = @json(route('riser.details', ['id' => '__ID__']));
+        const baseMapDefinition = @json($baseMap);
 
         let operationModal = new bootstrap.Modal(
             document.getElementById('operationModal')
@@ -1505,12 +1513,17 @@
         function loadMiniMap() {
             const coordinate = riserData.coordinate;
 
-            if (!coordinate || !coordinate.coordinates || coordinate.coordinates.length < 2) {
-                document.getElementById('miniMap').innerHTML = '<p class="text-center pt-5">مختصات موجود نیست</p>';
+            const coordinates = coordinate?.coordinates;
+            const lng = Number(coordinates?.[0]);
+            const lat = Number(coordinates?.[1]);
+
+            if (!coordinate || coordinate.type !== 'Point' || !Array.isArray(coordinates)
+                || coordinates.length < 2 || !Number.isFinite(lng) || !Number.isFinite(lat)
+                || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+                document.getElementById('miniMap').innerHTML = '<p class="text-center pt-5">هندسه یا مختصات علمک معتبر نیست</p>';
                 return;
             }
 
-            const [lng, lat] = coordinate.coordinates;
             const coord = ol.proj.fromLonLat([lng, lat]);
 
             const marker = new ol.Feature({
@@ -1535,27 +1548,68 @@
                 }),
             });
 
-            const osm = new ol.layer.Tile({
-                source: new ol.source.XYZ({
-                    url: '{{ url('/tiles/{z}/{x}/{y}.png') }}'
-                })
+            const createBaseMapLayer = definition => {
+                const common = {
+                    minZoom: definition.min_zoom,
+                    maxZoom: definition.max_zoom
+                };
+
+                if (definition.service_type === 'vector_mvt') {
+                    return new ol.layer.VectorTile({
+                        ...common,
+                        source: new ol.source.VectorTile({
+                            format: new ol.format.MVT(),
+                            url: definition.tile_url,
+                            cacheSize: 512
+                        })
+                    });
+                }
+
+                return new ol.layer.Tile({
+                    ...common,
+                    source: new ol.source.XYZ({
+                        url: definition.tile_url,
+                        attributions: definition.attribution || undefined,
+                        maxZoom: definition.max_zoom
+                    })
+                });
+            };
+
+            const baseMapLayer = createBaseMapLayer(baseMapDefinition);
+            const mapError = document.getElementById('miniMapError');
+            const showMapError = message => {
+                mapError.textContent = message;
+                mapError.classList.remove('d-none');
+            };
+            baseMapLayer.getSource().on('tileloaderror', () => {
+                showMapError('Tile Server نقشه در دسترس نیست یا پاسخ معتبر نمی‌دهد. تنظیمات پروفایل فعال GIS را بررسی کنید.');
             });
 
 
             const map = new ol.Map({
                 target: 'miniMap',
                 layers: [
-                    osm,
+                    baseMapLayer,
                     vectorLayer,
                 ],
                 view: new ol.View({
                     center: coord,
-                    zoom: 17,
+                    zoom: Math.min(baseMapDefinition.max_zoom, Math.max(baseMapDefinition.min_zoom, 16)),
+                    minZoom: baseMapDefinition.min_zoom,
+                    maxZoom: baseMapDefinition.max_zoom,
                 }),
                 interactions: ol.interaction.defaults.defaults({
                     mouseWheelZoom: false,
                 }),
             });
+
+            const updateMapSize = () => map.updateSize();
+            window.addEventListener('resize', updateMapSize);
+            window.addEventListener('load', updateMapSize, { once: true });
+            if (window.ResizeObserver) {
+                new ResizeObserver(updateMapSize).observe(document.getElementById('miniMap'));
+            }
+            requestAnimationFrame(updateMapSize);
 
             return map;
         }

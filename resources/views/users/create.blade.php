@@ -32,6 +32,20 @@
 
             <div class="row g-3">
 
+                @if($isSuperAdmin)
+                <div class="col-md-6">
+                    <label class="form-label" for="organization_id">سازمان</label>
+                    <select id="organization_id" name="organization_id" class="form-select @error('organization_id') is-invalid @enderror">
+                        <option value="">بدون سازمان</option>
+                        @foreach($organizations as $organization)
+                            <option value="{{ $organization->id }}" @selected(old('organization_id') == $organization->id)>{{ $organization->name }} ({{ $organization->code }})</option>
+                        @endforeach
+                    </select>
+                    @error('organization_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    <div class="form-text">برای Boss دارای GroupUser یا Zone سازمانی، انتخاب سازمان الزامی است.</div>
+                </div>
+                @endif
+
 
                 <div class="col-md-6">
 
@@ -154,7 +168,7 @@
 
 
                         @foreach ($groupusers as $group)
-                            <option value="{{ $group->id }}" @selected(old('group_user_id') == $group->id)>
+                            <option value="{{ $group->id }}" data-organization="{{ $group->organization_id }}" @selected(old('group_user_id') == $group->id)>
 
                                 {{ $group->name }}
 
@@ -195,7 +209,7 @@
 
 
                         @foreach ($zones as $zone)
-                            <option value="{{ $zone->id }}" @selected(old('zone_id') == $zone->id)>
+                            <option value="{{ $zone->id }}" data-organization="{{ $zone->organization_id }}" @selected(old('zone_id') == $zone->id)>
 
                                 {{ $zone->name }}
 
@@ -312,3 +326,27 @@
 
 
 @endsection
+
+@push('scripts')
+@if($isSuperAdmin)
+<script>
+(() => {
+    const organization = document.getElementById('organization_id');
+    const filter = () => {
+        ['group_user_id', 'zone_id'].forEach(id => {
+            const select = document.querySelector(`[name="${id}"]`);
+            if (!select) return;
+            [...select.options].forEach(option => {
+                if (!option.value) return;
+                const visible = !organization.value || option.dataset.organization === organization.value;
+                option.hidden = !visible;
+                if (!visible) option.selected = false;
+            });
+        });
+    };
+    organization.addEventListener('change', filter);
+    filter();
+})();
+</script>
+@endif
+@endpush

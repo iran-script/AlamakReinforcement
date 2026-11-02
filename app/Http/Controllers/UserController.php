@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Contract;
 use App\Models\GroupUser;
+use App\Models\Organization;
 use App\Models\User;
 use App\Models\Zone;
 use App\Policies\UserPolicy;
 use App\Services\AuditLogger;
+use App\Services\UserManagementScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
 
@@ -23,10 +27,8 @@ class UserController extends Controller
 
         $query = User::query()->with(['roles', 'zone', 'groupUser', 'contract']);
         if ($actor->hasRole('boss')) {
-            $zoneIds = $this->manageableZones($actor)->select('id');
-            $query->whereIn('group_user_id', $actor->managedGroupIds())
-                ->where('organization_id', $actor->organization_id)
-                ->whereIn('zone_id', $zoneIds);
+            $query = app(UserManagementScope::class)->usersQuery($actor)
+                ->with(['roles', 'zone', 'groupUser', 'contract']);
         }
 
         if ($request->filled('search')) {
@@ -45,17 +47,8 @@ class UserController extends Controller
     {
         Gate::authorize('create', User::class);
         $actor = $request->user();
-        $isBoss = $actor->hasRole('boss');
-        $roles = $this->assignableRoles($actor);
-        $zones = $this->manageableZones($actor)->orderBy('id')->get();
-        $groupusers = $isBoss
-            ? GroupUser::query()->whereIn('id', $actor->managedGroupIds())->orderBy('name')->get()
-            : GroupUser::query()->orderBy('name')->get();
-        $contracts = $isBoss
-            ? Contract::query()->where('creator_id', $actor->id)->orderBy('id')->get()
-            : Contract::query()->orderBy('id')->get();
 
-        return view('users.create', compact('roles', 'zones', 'groupusers', 'contracts', 'isBoss'));
+        return view('users.create', $this->formOptions($actor));
     }
 
     public function store(Request $request)
@@ -63,6 +56,7 @@ class UserController extends Controller
         Gate::authorize('create', User::class);
         $actor = $request->user();
         $isBoss = $actor->hasRole('boss');
+        $isSuperAdmin = $actor->hasRole('superadmin');
         $roleNames = $this->assignableRoles($actor)->pluck('name')->all();
 
         $validated = $request->validate([
@@ -84,8 +78,9 @@ class UserController extends Controller
             $this->assertBossContract($actor, $validated['contract_id'] ?? null);
             $validated['organization_id'] = $actor->organization_id;
         }
+        $this->assertAssignmentScope($validated);
 
-        DB::transaction(function () use ($validated, $actor, $role): void {
+        DB::transaction(function () use ($validated, $actor, $role, $isSuperAdmin): void {
             $user = User::create([
                 'name' => $validated['name'],
                 'username' => $validated['username'],
@@ -96,7 +91,7 @@ class UserController extends Controller
                 'group_user_id' => $validated['group_user_id'] ?? null,
                 'zone_id' => $validated['zone_id'] ?? null,
                 'contract_id' => $validated['contract_id'] ?? null,
-                'organization_id' => $validated['organization_id'] ?? ($actor->hasRole('superadmin') ? null : $actor->organization_id),
+                'organization_id' => $validated['organization_id'] ?? ($isSuperAdmin ? null : $actor->organization_id),
             ]);
 
             $user->syncRoles([$role]);
@@ -114,18 +109,9 @@ class UserController extends Controller
     {
         Gate::authorize('update', $user);
         $actor = $request->user();
-        $isBoss = $actor->hasRole('boss');
         $user->load(['roles', 'zone', 'groupUser']);
-        $roles = $this->assignableRoles($actor);
-        $zones = $this->manageableZones($actor)->orderBy('id')->get();
-        $groupusers = $isBoss
-            ? GroupUser::query()->whereIn('id', $actor->managedGroupIds())->orderBy('name')->get()
-            : GroupUser::query()->orderBy('name')->get();
-        $contracts = $isBoss
-            ? Contract::query()->where('creator_id', $actor->id)->orderBy('id')->get()
-            : Contract::query()->orderBy('id')->get();
 
-        return view('users.edit', compact('user', 'roles', 'zones', 'groupusers', 'contracts', 'isBoss'));
+        return view('users.edit', ['user' => $user] + $this->formOptions($actor));
     }
 
     public function update(Request $request, User $user)
@@ -133,6 +119,7 @@ class UserController extends Controller
         Gate::authorize('update', $user);
         $actor = $request->user();
         $isBoss = $actor->hasRole('boss');
+        $isSuperAdmin = $actor->hasRole('superadmin');
         $roleNames = $this->assignableRoles($actor)->pluck('name')->all();
 
         $validated = $request->validate([
@@ -153,6 +140,10 @@ class UserController extends Controller
             $this->assertBossZone($actor, (int) $validated['zone_id']);
             $this->assertBossContract($actor, $validated['contract_id'] ?? null);
             $validated['organization_id'] = $actor->organization_id;
+        }
+        $this->assertAssignmentScope($validated);
+        if ($isSuperAdmin) {
+            $this->assertOrganizationChangeSafe($user, $validated['organization_id'] ?? null);
         }
 
         DB::transaction(function () use ($validated, $user, $role, $actor): void {
@@ -215,6 +206,29 @@ class UserController extends Controller
         return $query->orderBy('name')->get();
     }
 
+    /** @return array{roles: mixed, zones: mixed, groupusers: mixed, contracts: mixed, isBoss: bool, isSuperAdmin: bool, organizations: mixed} */
+    private function formOptions(User $actor): array
+    {
+        $isBoss = $actor->hasRole('boss');
+        $isSuperAdmin = $actor->hasRole('superadmin');
+
+        return [
+            'roles' => $this->assignableRoles($actor),
+            'zones' => $this->manageableZones($actor)->orderBy('id')->get(),
+            'groupusers' => $isBoss
+                ? GroupUser::query()->whereIn('id', $actor->managedGroupIds())->orderBy('name')->get()
+                : GroupUser::query()->orderBy('name')->get(),
+            'contracts' => $isBoss
+                ? Contract::query()->where('creator_id', $actor->id)->orderBy('id')->get()
+                : Contract::query()->orderBy('id')->get(),
+            'isBoss' => $isBoss,
+            'isSuperAdmin' => $isSuperAdmin,
+            'organizations' => $isSuperAdmin
+                ? Organization::query()->orderBy('name')->get(['id', 'name', 'code', 'status'])
+                : collect(),
+        ];
+    }
+
     private function manageableZones(User $actor)
     {
         $query = Zone::query();
@@ -247,5 +261,63 @@ class UserController extends Controller
         }
 
         abort_unless(Contract::query()->where('creator_id', $actor->id)->whereKey($contractId)->exists(), 403);
+    }
+
+    /** @param array<string, mixed> $validated */
+    private function assertAssignmentScope(array $validated): void
+    {
+        $organizationId = isset($validated['organization_id']) && $validated['organization_id'] !== ''
+            ? (int) $validated['organization_id'] : null;
+        $group = ! empty($validated['group_user_id']) ? GroupUser::query()->find((int) $validated['group_user_id']) : null;
+        $zone = ! empty($validated['zone_id']) ? Zone::query()->find((int) $validated['zone_id']) : null;
+
+        if ($group && (($group->organization_id === null && $organizationId !== null)
+            || ($group->organization_id !== null && (int) $group->organization_id !== (int) $organizationId))) {
+            throw ValidationException::withMessages(['organization_id' => 'سازمان کاربر باید با سازمان گروه کاربران یکسان باشد.']);
+        }
+        if ($zone && (($zone->organization_id === null && $organizationId !== null)
+            || ($zone->organization_id !== null && (int) $zone->organization_id !== (int) $organizationId))) {
+            throw ValidationException::withMessages(['organization_id' => 'سازمان کاربر باید با سازمان Zone یکسان باشد.']);
+        }
+        if ($group && $group->zone_id !== null && (int) $group->zone_id !== (int) ($validated['zone_id'] ?? 0)) {
+            throw ValidationException::withMessages(['zone_id' => 'Zone کاربر باید با Zone گروه کاربران یکسان باشد.']);
+        }
+    }
+
+    private function assertOrganizationChangeSafe(User $user, mixed $organizationId): void
+    {
+        $newOrganizationId = $organizationId === null || $organizationId === '' ? null : (int) $organizationId;
+        if ((int) $user->organization_id === (int) $newOrganizationId) return;
+
+        $references = [
+            ['operations', 'user_id', 'عملیات'],
+            ['maintenance_cases', 'reported_by', 'پرونده‌های تعمیر'],
+            ['maintenance_cases', 'last_edited_by', 'ویرایش پرونده‌های تعمیر'],
+            ['operation_supervisors', 'user_id', 'تأییدیه عملیات'],
+            ['workflow_transfers', 'user_id_from', 'انتقال‌های گردش‌کار'],
+            ['workflow_transfers', 'user_id_to', 'دریافت‌های گردش‌کار'],
+            ['work_orders', 'requester_id', 'دستورکارهای درخواستی'],
+            ['work_orders', 'created_by', 'دستورکارهای ایجادشده'],
+            ['work_orders', 'assigned_to', 'دستورکارهای تخصیص‌یافته'],
+            ['workflow_tasks', 'assigned_to', 'وظایف گردش‌کار'],
+            ['saved_reports', 'user_id', 'گزارش‌های ذخیره‌شده'],
+        ];
+        foreach ($references as [$table, $column, $label]) {
+            if (Schema::hasTable($table) && DB::table($table)->where($column, $user->id)->exists()) {
+                throw ValidationException::withMessages(['organization_id' => "تغییر سازمان این کاربر به دلیل وجود {$label} ممکن نیست."]);
+            }
+        }
+
+        if ($user->hasRole('boss') && Schema::hasTable('boss_managed_groups')) {
+            $hasForeignManagedGroup = DB::table('boss_managed_groups AS managed')
+                ->join('group_users AS groups', 'groups.id', '=', 'managed.group_user_id')
+                ->where('managed.boss_user_id', $user->id)
+                ->where(function ($query) use ($newOrganizationId): void {
+                    $query->whereNull('groups.organization_id')->orWhere('groups.organization_id', '!=', $newOrganizationId);
+                })->exists();
+            if ($hasForeignManagedGroup) {
+                throw ValidationException::withMessages(['organization_id' => 'گروه‌های مدیریتی Boss با سازمان جدید سازگار نیستند.']);
+            }
+        }
     }
 }

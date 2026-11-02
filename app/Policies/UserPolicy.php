@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\User;
 use App\Models\Zone;
+use App\Services\UserManagementScope;
 
 class UserPolicy
 {
@@ -12,7 +13,7 @@ class UserPolicy
     public function viewAny(User $actor): bool
     {
         return $actor->hasRole('superadmin')
-            || ($actor->hasRole('boss') && $actor->managedGroupIds() !== [] && $actor->can('user.view'));
+            || ($actor->hasRole('boss') && $actor->can('user.view'));
     }
 
     public function create(User $actor): bool
@@ -21,12 +22,9 @@ class UserPolicy
             return true;
         }
 
-        $zones = Zone::query()->whereKey($actor->zone_id)->where('organization_id', $actor->organization_id);
-
         return $actor->hasRole('boss')
-            && $actor->managedGroupIds() !== []
-            && $actor->can('user.create')
-            && $zones->exists();
+            && app(UserManagementScope::class)->canManageUsers($actor)
+            && $actor->can('user.create');
     }
 
     public function update(User $actor, User $target): bool
@@ -39,9 +37,7 @@ class UserPolicy
 
         if (! $actor->hasRole('boss')
             || ! $actor->can('user.edit')
-            || (int) $actor->id === (int) $target->id
-            || ! in_array((int) $target->group_user_id, $actor->managedGroupIds(), true)
-            || (int) $actor->organization_id !== (int) $target->organization_id
+            || ! app(UserManagementScope::class)->contains($actor, $target)
             || $target->hasAnyRole(['boss', 'superadmin'])
             || count($targetRoles) !== 1
             || ! in_array($targetRoles[0], self::BOSS_ASSIGNABLE_ROLES, true)) {

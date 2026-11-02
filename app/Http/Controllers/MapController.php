@@ -19,10 +19,7 @@ class MapController extends Controller
 {
     public function index(Request $request, MapProfileService $profiles): View
     {
-        $setting = $profiles->activeFor($request->user());
-        $baseMap = $profiles->payload($setting);
-        if (str_starts_with($baseMap['tile_url'], '/')) $baseMap['tile_url'] = url($baseMap['tile_url']);
-        if (is_string($baseMap['style_url']) && str_starts_with($baseMap['style_url'], '/')) $baseMap['style_url'] = url($baseMap['style_url']);
+        $baseMap = $profiles->payloadForView($request->user());
 
         $layerDefinitions = collect(config('gis.layers', []));
         GisMapLayer::query()

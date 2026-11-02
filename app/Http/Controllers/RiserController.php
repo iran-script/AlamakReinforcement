@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 use App\Services\WorkflowService;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WorkflowTransfer;
+use App\Services\MapProfileService;
+use Illuminate\Validation\Rule;
 
 
 class RiserController extends Controller
@@ -33,22 +35,101 @@ class RiserController extends Controller
 
         return response()->json(['success' => true, 'transfer' => $transfer]);
     }
-    public function index()
+    public function index(Request $request)
     {
-        $risers = Riser::visibleTo(request()->user())
-            ->orderBy('updated_at', 'desc')
-            ->paginate(20);
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'string', 'max:50'],
+            'code_state' => ['nullable', Rule::in(['has_code', 'no_code'])],
+            'sort' => ['nullable', Rule::in(['id', 'r_giscode', 'giscode', 'status', 'created_at', 'updated_at'])],
+            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
+            'per_page' => ['nullable', 'integer', Rule::in([25, 50, 100])],
+        ]);
 
-        return view('riser.index', compact('risers'));
+        $user = $request->user();
+        $visibleQuery = Riser::query()->visibleTo($user);
+        $query = (clone $visibleQuery)
+            ->select(['id', 'r_giscode', 'giscode', 'status', 'created_at', 'updated_at']);
+
+        $search = trim((string) ($validated['q'] ?? ''));
+        if ($search !== '') {
+            $query->where(function ($searchQuery) use ($search): void {
+                $searchQuery->where('r_giscode', 'ilike', '%'.$search.'%')
+                    ->orWhere('giscode', 'ilike', '%'.$search.'%');
+
+                if (ctype_digit($search)) {
+                    $searchQuery->orWhere('id', (int) $search);
+                }
+            });
+        }
+
+        if (! empty($validated['status'])) {
+            $query->where('status', $validated['status']);
+        }
+
+        if (($validated['code_state'] ?? null) === 'has_code') {
+            $query->where(fn ($codeQuery) => $codeQuery
+                ->whereNotNull('r_giscode')->where('r_giscode', '<>', '')
+                ->orWhere(fn ($secondCodeQuery) => $secondCodeQuery
+                    ->whereNotNull('giscode')->where('giscode', '<>', '')));
+        } elseif (($validated['code_state'] ?? null) === 'no_code') {
+            $query->where(function ($codeQuery): void {
+                $codeQuery->whereNull('r_giscode')->orWhere('r_giscode', '');
+                $codeQuery->where(function ($secondCodeQuery): void {
+                    $secondCodeQuery->whereNull('giscode')->orWhere('giscode', '');
+                });
+            });
+        }
+
+        $sort = $validated['sort'] ?? 'updated_at';
+        $direction = $validated['direction'] ?? 'desc';
+        $perPage = (int) ($validated['per_page'] ?? 25);
+
+        $statuses = (clone $visibleQuery)
+            ->whereNotNull('status')
+            ->where('status', '<>', '')
+            ->distinct()
+            ->orderBy('status')
+            ->pluck('status');
+
+        $totalVisible = (clone $visibleQuery)->reorder()->count('riser.id');
+        $withCode = (clone $visibleQuery)->reorder()->where(function ($codeQuery): void {
+            $codeQuery->whereNotNull('r_giscode')->where('r_giscode', '<>', '')
+                ->orWhere(fn ($secondCodeQuery) => $secondCodeQuery
+                    ->whereNotNull('giscode')->where('giscode', '<>', ''));
+        })->count('riser.id');
+
+        $risers = $query->orderBy($sort, $direction)
+            ->orderBy('id', 'desc')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        return view('riser.index', [
+            'risers' => $risers,
+            'statuses' => $statuses,
+            'totalVisible' => $totalVisible,
+            'withCode' => $withCode,
+            'perPage' => $perPage,
+            'filters' => $validated,
+        ]);
     }
 
     /**
      * نمایش صفحه
      */
-    public function show($id)
+    public function show($id, MapProfileService $profiles)
     {
+        $user = request()->user();
+        $returnTo = request()->query('return_to');
+        if (! is_string($returnTo) || ! str_starts_with($returnTo, url('/'))) {
+            $returnTo = route('riserIndex');
+        }
+
         return view('riser.show', [
-            'id' => $id
+            'id' => $id,
+            'baseMap' => $profiles->payloadForView($user),
+            'hasActiveMapProfile' => $profiles->activeFor($user) !== null,
+            'returnTo' => $returnTo,
         ]);
     }
 
@@ -251,7 +332,7 @@ class RiserController extends Controller
 
     public function table()
     {
-        return view('riser.table');
+        return redirect()->route('riserIndex');
     }
 
     public function data(Request $request)

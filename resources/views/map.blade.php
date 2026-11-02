@@ -512,14 +512,15 @@
         }));
         document.getElementById('maintenanceCaseForm').addEventListener('submit', async event => {
             event.preventDefault();
+            const form = event.currentTarget;
             const message = document.getElementById('maintenanceMessage');
             message.textContent = 'در حال ثبت پرونده…';
             try {
-                const response = await fetch(maintenanceCaseStoreUrl, { method: 'POST', body: new FormData(event.currentTarget), headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content } });
+                const response = await fetch(maintenanceCaseStoreUrl, { method: 'POST', body: new FormData(form), headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content } });
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || `HTTP ${response.status}`);
                 selectedCaseId = payload.case.id;
-                event.currentTarget.classList.add('d-none');
+                form.classList.add('d-none');
                 const operationForm = document.getElementById('maintenanceOperationForm');
                 operationForm.classList.remove('d-none');
                 const caseType = payload.case.operation_category_id;

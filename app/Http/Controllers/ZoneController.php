@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Zone;
 use App\Services\AuditLogger;
+use App\Services\MapProfileService;
+use App\Services\ZoneBoundaryService;
 use Illuminate\Http\Request;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -12,16 +14,21 @@ use Illuminate\Validation\ValidationException;
 
 class ZoneController extends Controller
 {
-    public function manage()
+    public function manage(MapProfileService $profiles, ZoneBoundaryService $boundaries)
     {
         Gate::authorize('viewAny', Zone::class);
         $user = request()->user();
 
         return view('zones.manage', [
+            'baseMap' => $profiles->payloadForView($user),
+            'hasActiveMapProfile' => $profiles->activeFor($user) !== null,
             'canCreateZones' => Gate::allows('create', Zone::class),
-            'canEditZones' => ! $user->hasRole('boss') && ($user->hasRole('superadmin') || $user->can('zone.edit')),
+            'canEditZones' => $user->hasRole('superadmin') || $user->can('zone.edit')
+                || ($user->hasRole('boss') && $boundaries->hasValidBoundary($user)),
             'canDeleteZones' => ! $user->hasRole('boss') && ($user->hasRole('superadmin') || $user->can('zone.delete')),
-            'bossZoneBoundaryUnavailable' => $user->hasRole('boss'),
+            'bossZoneBoundaryUnavailable' => $user->hasRole('boss') && ! $boundaries->hasValidBoundary($user),
+            'isBoss' => $user->hasRole('boss'),
+            'initialFocusZoneId' => $user->hasRole('superadmin') ? null : $user->zone_id,
         ]);
     }
 
@@ -29,17 +36,31 @@ class ZoneController extends Controller
     {
         Gate::authorize('viewAny', Zone::class);
 
+        $currentUser = auth()->user();
+        if ($currentUser->hasRole('boss')) {
+            if ($currentUser->organization_id === null || $currentUser->zone_id === null) {
+                return response()->json([
+                    'message' => 'سازمان یا Zone اصلی Boss تعریف نشده است؛ دریافت Zoneها ممکن نیست.',
+                    'code' => 'boss_scope_missing',
+                ], 422);
+            }
+            if (! app(ZoneBoundaryService::class)->boundary($currentUser)) {
+                return response()->json([
+                    'message' => 'Zone اصلی Boss معتبر نیست یا هندسه آن قابل استفاده نیست.',
+                    'code' => 'boss_boundary_unavailable',
+                ], 422);
+            }
+        }
+
         $zones = Zone::query()
             ->whereNotNull('geom')
             ->whereRaw('ST_IsValid(geom)')
             ->select('id', 'name', DB::raw('ST_AsGeoJSON(ST_Transform(geom,4326)) as geojson'));
 
-        $currentUser = auth()->user();
         if ($currentUser->hasRole('boss')) {
-            $zones->where('creator_id', $currentUser->id);
-            if ($currentUser->organization_id !== null) {
-                $zones->where('organization_id', $currentUser->organization_id);
-            }
+            $zones->where('organization_id', $currentUser->organization_id)
+                ->where('creator_id', $currentUser->id)
+                ->where('id', '!=', $currentUser->zone_id);
         } elseif (! $currentUser->hasRole('superadmin') && $currentUser->organization_id !== null) {
             $zones->where('organization_id', $currentUser->organization_id);
         }
@@ -60,6 +81,57 @@ class ZoneController extends Controller
         return response()->json(['type' => 'FeatureCollection', 'features' => $features]);
     }
 
+    public function boundary()
+    {
+        Gate::authorize('viewAny', Zone::class);
+
+        $currentUser = auth()->user();
+        if (! $currentUser->hasRole('boss')) {
+            return response()->json(['feature' => null]);
+        }
+
+        if ($currentUser->organization_id === null || $currentUser->zone_id === null) {
+            return response()->json([
+                'message' => 'سازمان یا Zone اصلی Boss تعریف نشده است.',
+                'code' => 'boss_scope_missing',
+            ], 422);
+        }
+
+        $boundary = app(ZoneBoundaryService::class)->boundary($currentUser);
+        if (! $boundary) {
+            return response()->json([
+                'message' => 'Zone اصلی Boss معتبر نیست یا هندسه آن قابل استفاده نیست.',
+                'code' => 'boss_boundary_unavailable',
+            ], 422);
+        }
+
+        $row = Zone::query()->whereKey($boundary->id)
+            ->select('id', 'name')
+            ->selectRaw('ST_AsGeoJSON(ST_Transform(geom,4326)) AS geojson')
+            ->first();
+        $geometry = $row ? json_decode($row->geojson, true) : null;
+
+        if (! is_array($geometry) || empty($geometry['type']) || empty($geometry['coordinates'])) {
+            return response()->json([
+                'message' => 'هندسه Zone اصلی Boss معتبر نیست.',
+                'code' => 'boss_boundary_geometry_invalid',
+            ], 422);
+        }
+
+        return response()->json([
+            'feature' => [
+                'type' => 'Feature',
+                'geometry' => $geometry,
+                'properties' => [
+                    'id' => $row->id,
+                    'name' => $row->name,
+                    'readOnly' => true,
+                    'role' => 'boss_boundary',
+                ],
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         Gate::authorize('create', Zone::class);
@@ -73,6 +145,9 @@ class ZoneController extends Controller
 
         $geometryJson = json_encode($validated['geometry'], JSON_THROW_ON_ERROR);
         $this->assertValidGeometry($geometryJson);
+        if ($request->user()->hasRole('boss')) {
+            app(ZoneBoundaryService::class)->assertWithin($request->user(), $geometryJson);
+        }
 
         $zoneId = DB::selectOne(
             'INSERT INTO zone (name, creator_id, organization_id, geom, created_at, updated_at)
@@ -102,6 +177,9 @@ class ZoneController extends Controller
 
         $geometryJson = json_encode($validated['geometry'], JSON_THROW_ON_ERROR);
         $this->assertValidGeometry($geometryJson);
+        if ($request->user()->hasRole('boss')) {
+            app(ZoneBoundaryService::class)->assertWithin($request->user(), $geometryJson);
+        }
         $before = [
             'id' => $zone->id, 'name' => $zone->name, 'organization_id' => $zone->organization_id,
             'creator_id' => $zone->creator_id,

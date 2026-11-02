@@ -13,6 +13,7 @@ use App\Http\Controllers\MaterialCategoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\MbtilesController;
 use App\Http\Controllers\OperationCategoryController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\OperationImageController;
 use App\Http\Controllers\Platform\FormStudioController;
@@ -220,6 +221,9 @@ Route::middleware('auth')->group(function () {
             Route::get('/', 'index')
                 ->name('zones.index');
 
+            Route::get('/boundary', 'boundary')
+                ->name('zones.boundary');
+
             Route::post('/store', 'store')
                 ->name('zones.store');
 
@@ -229,11 +233,10 @@ Route::middleware('auth')->group(function () {
             Route::delete('/destroy/{zone}', 'destroy')
                 ->name('zones.destroy');
 
-            Route::get('/zones/manage', [
-                ZoneController::class,
-                'manage',
-            ])->name('zones.manage');
         });
+
+    Route::get('/zones/manage', [ZoneController::class, 'manage'])
+        ->name('zones.manage');
 
     /*
     |--------------------------------------------------------------------------
@@ -374,6 +377,10 @@ Route::middleware([
             GroupUserController::class
         );
     });
+
+Route::middleware('auth')->group(function () {
+    Route::resource('organizations', OrganizationController::class)->except(['show']);
+});
 
 /*
 |--------------------------------------------------------------------------

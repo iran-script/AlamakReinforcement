@@ -107,6 +107,15 @@
         </div>
     @endif
 
+    @if(! $hasActiveMapProfile)
+        <div class="alert alert-warning" role="alert">
+            پروفایل فعال نقشه پیدا نشد؛ نقشه با تنظیم پیش‌فرض سامانه بارگذاری می‌شود. برای استفاده از Base Map سازمانی، یک پروفایل GIS را فعال کنید.
+        </div>
+    @endif
+
+    <div id="mapError" class="alert alert-danger d-none" role="alert"></div>
+    <div id="mapFocusError" class="alert alert-warning d-none" role="alert"></div>
+
     <div class="zone-page">
 
         <div class="zone-sidebar">
@@ -174,6 +183,7 @@
 
             const zoneRoutes = {
                 index: @json(route('zones.index')),
+                boundary: @json(route('zones.boundary')),
                 store: @json(route('zones.store')),
                 update: @json(route('zones.update', ['zone' => '__ZONE_ID__'])),
                 destroy: @json(route('zones.destroy', ['zone' => '__ZONE_ID__'])),
@@ -183,12 +193,16 @@
             const canCreateZones = @json($canCreateZones);
             const canEditZones = @json($canEditZones);
             const canDeleteZones = @json($canDeleteZones);
+            const baseMapDefinition = @json($baseMap);
+            const isBossUser = @json($isBoss);
+            const initialFocusZoneId = @json($initialFocusZoneId);
 
             let selectedFeature = null;
             let drawInteraction = null;
             let modifyInteraction = null;
 
             const zoneSource = new ol.source.Vector();
+            const boundarySource = new ol.source.Vector();
 
             const zoneLayer = new ol.layer.Vector({
                 source: zoneSource,
@@ -218,23 +232,120 @@
                     });
                 }
             });
-            const osm = new ol.layer.Tile({
-                source: new ol.source.XYZ({
-                    url: '{{ url('/tiles/{z}/{x}/{y}.png') }}'
+            const boundaryLayer = new ol.layer.Vector({
+                source: boundarySource,
+                style: new ol.style.Style({
+                    fill: new ol.style.Fill({color: 'rgba(241, 159, 59, 0.08)'}),
+                    stroke: new ol.style.Stroke({color: '#f19f3b', width: 3, lineDash: [10, 8]})
                 })
+            });
+            function createBaseMapLayer(definition) {
+                const common = {
+                    minZoom: definition.min_zoom,
+                    maxZoom: definition.max_zoom
+                };
+
+                if (definition.service_type === 'vector_mvt') {
+                    return new ol.layer.VectorTile({
+                        ...common,
+                        source: new ol.source.VectorTile({
+                            format: new ol.format.MVT(),
+                            url: definition.tile_url,
+                            cacheSize: 512
+                        })
+                    });
+                }
+
+                return new ol.layer.Tile({
+                    ...common,
+                    source: new ol.source.XYZ({
+                        url: definition.tile_url,
+                        attributions: definition.attribution || undefined,
+                        maxZoom: definition.max_zoom
+                    })
+                });
+            }
+
+            const baseMapLayer = createBaseMapLayer(baseMapDefinition);
+            const mapError = document.getElementById('mapError');
+            const mapFocusError = document.getElementById('mapFocusError');
+            const showMapError = message => {
+                mapError.textContent = message;
+                mapError.classList.remove('d-none');
+            };
+            const showMapFocusError = message => {
+                mapFocusError.textContent = message;
+                mapFocusError.classList.remove('d-none');
+            };
+            baseMapLayer.getSource().on('tileloaderror', () => {
+                showMapError('Tile Server نقشه در دسترس نیست یا پاسخ معتبر نمی‌دهد. تنظیمات پروفایل فعال GIS را بررسی کنید.');
             });
 
             const map = new ol.Map({
                 target: 'map',
                 layers: [
-                    osm,
+                    baseMapLayer,
+                    boundaryLayer,
                     zoneLayer
                 ],
                 view: new ol.View({
                     center: ol.proj.fromLonLat([51.3890, 35.6892]),
-                    zoom: 11
+                    zoom: Math.min(baseMapDefinition.max_zoom, Math.max(baseMapDefinition.min_zoom, 11)),
+                    minZoom: baseMapDefinition.min_zoom,
+                    maxZoom: baseMapDefinition.max_zoom
                 })
             });
+
+            function loadBoundary() {
+                return fetch(zoneRoutes.boundary, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(async response => {
+                        const payload = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                            const error = new Error(payload.message || 'خطا در دریافت محدوده اصلی Boss');
+                            error.status = response.status;
+                            error.code = payload.code;
+                            throw error;
+                        }
+                        return payload;
+                    })
+                    .then(data => {
+                        boundarySource.clear();
+                        if (!data.feature || !data.feature.geometry) {
+                            return;
+                        }
+
+                        const feature = new ol.format.GeoJSON().readFeature(data.feature, {
+                            featureProjection: 'EPSG:3857',
+                            dataProjection: 'EPSG:4326'
+                        });
+                        feature.set('readOnly', true);
+                        feature.set('role', 'boss_boundary');
+                        boundarySource.addFeature(feature);
+
+                        const extent = feature.getGeometry()?.getExtent();
+                        if (extent && !ol.extent.isEmpty(extent)) {
+                            requestAnimationFrame(() => requestAnimationFrame(() => {
+                                map.updateSize();
+                                map.getView().fit(extent, {
+                                    padding: [60, 60, 60, 60],
+                                    maxZoom: Math.min(baseMapDefinition.max_zoom, 16),
+                                    duration: 700
+                                });
+                            }));
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        if (isBossUser) {
+                            showMapFocusError(`${error.message || 'محدوده اصلی Boss قابل دریافت نیست'}${error.status ? ` (${error.status})` : ''}`);
+                        }
+                    });
+            }
 
             function loadZones() {
                 fetch(zoneRoutes.index, {
@@ -244,11 +355,21 @@
                         }
                     })
                     .then(async response => {
-                        if (!response.ok) {
-                            throw new Error('خطا در دریافت زون‌ها');
+                        if (!response.ok && !response.headers.get('content-type')?.includes('application/json')) {
+                            const error = new Error('خطا در دریافت زون‌ها');
+                            error.status = response.status;
+                            throw error;
                         }
 
-                        return response.json();
+                        return response.json().then(payload => {
+                            if (!response.ok) {
+                                const error = new Error(payload.message || 'خطا در دریافت Zoneها');
+                                error.status = response.status;
+                                error.code = payload.code;
+                                throw error;
+                            }
+                            return payload;
+                        });
                     })
                     .then(data => {
                         zoneSource.clear();
@@ -280,33 +401,46 @@
 
                         renderZonesList(validFeatures);
 
-                        if (validFeatures.length > 0) {
+                        if (isBossUser) {
+                            // Boss is fitted to the read-only boundary layer by loadBoundary().
+                            return;
+                        } else if (validFeatures.length === 0 && initialFocusZoneId !== null) {
+                            showMapFocusError('Zone اختصاص‌یافته معتبر نیست یا هندسه آن قابل نمایش نیست؛ نقشه با مرکز پیش‌فرض نمایش داده شد.');
+                            map.getView().setCenter(ol.proj.fromLonLat([49.6892, 34.0954]));
+                            map.getView().setZoom(Math.min(baseMapDefinition.max_zoom, Math.max(baseMapDefinition.min_zoom, 9)));
+                        } else if (validFeatures.length > 0) {
                             const extent = zoneSource.getExtent();
 
                             if (extent && !ol.extent.isEmpty(extent)) {
-                                map.getView().fit(extent, {
-                                    padding: [60, 60, 60, 60],
-                                    maxZoom: 16,
-                                    duration: 700
-                                });
+                                const fitView = () => {
+                                    map.updateSize();
+                                    map.getView().fit(extent, {
+                                        padding: [60, 60, 60, 60],
+                                        maxZoom: Math.min(baseMapDefinition.max_zoom, 16),
+                                        duration: 700
+                                    });
+                                };
+                                requestAnimationFrame(() => requestAnimationFrame(fitView));
                             }
                         } else {
 
                             list.innerHTML = '<div class="text-muted">هنوز زونی ثبت نشده است.</div>';
 
                             // نمایش استان مرکزی
+                            map.updateSize();
                             map.getView().setCenter(
                                 ol.proj.fromLonLat([49.6892, 34.0954]) // اراک
                             );
 
-                            map.getView().setZoom(9);
+                            map.getView().setZoom(Math.min(baseMapDefinition.max_zoom, Math.max(baseMapDefinition.min_zoom, 9)));
 
                         }
                     })
                     .catch(error => {
                         console.error(error);
+                        const status = error.status ? ` (${error.status})` : '';
                         document.getElementById('zonesList').innerHTML =
-                            '<div class="text-danger">خطا در دریافت زون‌ها.</div>';
+                            `<div class="text-danger">${error.message || 'خطا در دریافت زون‌ها'}${status}</div>`;
                     });
             }
 
@@ -627,7 +761,7 @@
 
             document.getElementById('cancelBtn').addEventListener('click', clearSelection);
 
-            loadZones();
+            loadBoundary().finally(loadZones);
 
         });
     </script>

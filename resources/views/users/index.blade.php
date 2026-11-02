@@ -176,6 +176,11 @@
 
 
 
+@php
+    $organizationMismatch = ($user->groupUser && $user->groupUser->organization_id !== null && (int) $user->groupUser->organization_id !== (int) $user->organization_id)
+        || ($user->zone && $user->zone->organization_id !== null && (int) $user->zone->organization_id !== (int) $user->organization_id)
+        || ($user->organization_id === null && (($user->groupUser && $user->groupUser->organization_id !== null) || ($user->zone && $user->zone->organization_id !== null)));
+@endphp
 <td>
 
 
@@ -193,6 +198,10 @@
 بدون گروه
 </span>
 
+@endif
+
+@if($organizationMismatch)
+<div class="text-danger small mt-1"><i class="bi bi-exclamation-triangle"></i> سازمان کاربر با GroupUser/Zone سازگار نیست</div>
 @endif
 
 

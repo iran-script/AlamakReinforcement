@@ -125,9 +125,14 @@ class UserZoneManagementTest extends TestCase
         $otherZone = $this->zone($otherBoss, $otherOrganization->id, 'boss-hidden-zone');
         $inScope = $this->actor('supervisor', $organization->id, $group->id, $ownZone->id);
         $outOfScope = $this->actor('supervisor', $organization->id, $group->id, $otherZone->id);
+        $bossPeer = $this->actor('boss', $organization->id, $group->id, $ownZone->id);
+        $superadminPeer = $this->actor('superadmin', $organization->id, $group->id, $ownZone->id);
 
         $response = $this->actingAs($boss)->get(route('users.index'))->assertOk();
-        $response->assertSee($inScope->username)->assertDontSee($outOfScope->username);
+        $response->assertSee($inScope->username)
+            ->assertDontSee($outOfScope->username)
+            ->assertDontSee($bossPeer->username)
+            ->assertDontSee($superadminPeer->username);
         $this->actingAs($boss)->get(route('users.edit', $outOfScope))->assertForbidden();
     }
 
@@ -214,15 +219,42 @@ class UserZoneManagementTest extends TestCase
         $boss = $this->actor('boss', $organization->id, $group->id);
         $ownZone = $this->zone($boss, $organization->id, 'zone-owner-visible');
         $otherZone = $this->zone($this->actor('boss', $otherOrganization->id, $this->group('zone-other-test')->id), $otherOrganization->id, 'zone-owner-hidden');
+        $childName = 'boss-child-visible-'.uniqid();
+        $this->actingAs($boss)->postJson(route('zones.store'), [
+            'name' => $childName,
+            'geometry' => $this->validZonePayload('child')['geometry'],
+        ])->assertOk();
+        $childZone = Zone::query()->where('name', $childName)->firstOrFail();
 
         $this->actingAs($boss)->get(route('zones.index'))
             ->assertOk()
-            ->assertJsonFragment(['id' => $ownZone->id, 'name' => $ownZone->name])
+            ->assertJsonCount(1, 'features')
+            ->assertJsonFragment(['id' => $childZone->id, 'name' => $childZone->name])
+            ->assertJsonMissing(['id' => $ownZone->id, 'name' => $ownZone->name])
             ->assertJsonMissing(['id' => $otherZone->id, 'name' => $otherZone->name]);
 
-        $this->actingAs($boss)->post(route('zones.store'), $this->validZonePayload('boss-zone-denied'))->assertForbidden();
         $this->actingAs($boss)->put(route('zones.update', $ownZone), $this->validZonePayload('boss-zone-edit-denied'))->assertForbidden();
         $this->actingAs($boss)->delete(route('zones.destroy', $ownZone))->assertForbidden();
+        $this->actingAs($boss)->get(route('zones.boundary'))
+            ->assertOk()
+            ->assertJsonPath('feature.properties.id', $ownZone->id);
+    }
+
+    public function test_boss_can_open_zone_management_page_and_receive_primary_boundary_geojson(): void
+    {
+        $organization = $this->organization('zone-management-page');
+        $group = $this->group('zone-management-page');
+        $boss = $this->actor('boss', $organization->id, $group->id);
+        $primaryZone = $this->zone($boss, $organization->id, 'zone-management-primary');
+
+        $this->actingAs($boss)->get(route('zones.manage'))->assertOk();
+        $this->actingAs($boss)->get(route('zones.index'))
+            ->assertOk()
+            ->assertJsonCount(0, 'features');
+        $this->actingAs($boss)->get(route('zones.boundary'))
+            ->assertOk()
+            ->assertJsonPath('feature.properties.id', $primaryZone->id)
+            ->assertJsonPath('feature.properties.readOnly', true);
     }
 
     public function test_superadmin_can_create_valid_zone_and_geometry_stays_epsg_4326(): void
