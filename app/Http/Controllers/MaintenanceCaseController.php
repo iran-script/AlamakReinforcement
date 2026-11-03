@@ -8,20 +8,23 @@ use App\Models\Operation;
 use App\Models\OperationImage;
 use App\Models\OperationMaterial;
 use App\Models\OperationSupervisor;
+use App\Models\OperationCategory;
 use App\Models\Riser;
 use App\Models\User;
 use App\Models\WorkflowTransfer;
 use App\Services\AuditLogger;
+use App\Services\WorkflowService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 
 class MaintenanceCaseController extends Controller
 {
-    public function __construct(private AuditLogger $audit) {}
+    public function __construct(private AuditLogger $audit, private WorkflowService $workflow) {}
 
     public function index(Request $request)
     {
@@ -31,7 +34,7 @@ class MaintenanceCaseController extends Controller
         abort_unless($user->isSuperAdmin() || ($visibleGroupIds !== [] && $user->zone_id), 403);
         $cases = MaintenanceCase::query()->visibleTo($user)
             ->when(! $user->isSuperAdmin(), fn ($query) => $query->whereIn('assigned_group_id', $visibleGroupIds))
-            ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'operations:id,maintenance_case_id,status,operation_date,operation_category_id'])
+            ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'operations:id,maintenance_case_id,status,operation_date,operation_category_id', 'operations.operationMaterial'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($user->isSuperAdmin() && $request->filled('group'), fn ($query) => $query->where('assigned_group_id', $request->integer('group')))
             ->when($request->filled('supervisor'), fn ($query) => $query->where('reported_by', $request->integer('supervisor')))
@@ -47,7 +50,8 @@ class MaintenanceCaseController extends Controller
         $actor = $request->user();
         $this->authorizeFieldEntry($actor);
         $this->requireMobileIdempotencySchema($request, 'maintenance_cases');
-        $clientUuidRule = $request->is('api/v1/supervisor/*') ? 'required' : 'nullable';
+        $isMobile = $request->is('api/v1/supervisor/*');
+        $clientUuidRule = $isMobile ? 'required' : 'nullable';
         abort_if(! $actor->group_user_id || ! $actor->zone_id || ! $actor->organization_id, 422, 'ط¨ط±ط§غŒ ط«ط¨طھ ظ…غŒط¯ط§ظ†غŒطŒ ع¯ط±ظˆظ‡طŒ ط³ط§ط²ظ…ط§ظ† ظˆ Zone ظ†ط§ط¸ط± ط¨ط§غŒط¯ ظ…ط´ط®طµ ط¨ط§ط´ط¯.');
         abort_unless(\App\Models\GroupUser::query()->whereKey($actor->group_user_id)
             ->where('organization_id', $actor->organization_id)->where('zone_id', $actor->zone_id)->exists(), 403,
@@ -57,13 +61,24 @@ class MaintenanceCaseController extends Controller
             'riser_id' => ['required', 'integer'],
             'client_uuid' => [$clientUuidRule, 'uuid'],
             'operation_category_id' => ['nullable', 'integer', 'exists:operation_categories,id'],
-            'priority' => ['required', 'string', Rule::in(["\u{06A9}\u{0645}", "\u{0645}\u{062A}\u{0648}\u{0633}\u{0637}", "\u{0632}\u{06CC}\u{0627}\u{062F}", "\u{0641}\u{0648}\u{0631}\u{06CC}"])],
+            'priority' => [$isMobile ? 'required' : 'nullable', 'string', Rule::in(['کم', 'متوسط', 'زیاد', 'فوری'])],
             'description' => ['nullable', 'string', 'max:10000'],
-            'identified_at' => ['required', 'date'],
+            'identified_at' => [$isMobile ? 'required' : 'nullable', 'date'],
             'photos_before' => ['nullable', 'array', 'max:20'],
             'photos_before.*' => ['image', 'max:10240'],
         ]);
         $riser = Riser::query()->visibleTo($actor)->findOrFail($data['riser_id']);
+        $openStatuses = [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED];
+        $existingOpenCase = MaintenanceCase::query()->where('riser_id', $riser->id)
+            ->where('assigned_group_id', $actor->group_user_id)
+            ->whereIn('status', $openStatuses)->latest('identified_at')->first();
+        if ($existingOpenCase && ! $isMobile) {
+            return response()->json([
+                'case' => $existingOpenCase->load(['riser:id,r_giscode,giscode', 'assignedGroup:id,name']),
+                'existing_case' => true,
+                'message' => 'برای این علمک پرونده تعمیر باز وجود دارد.',
+            ]);
+        }
         $supportsCaseIdempotency = Schema::hasColumn('maintenance_cases', 'client_uuid');
         if ($supportsCaseIdempotency && ! empty($data['client_uuid'])) {
             $existing = MaintenanceCase::query()->where('client_uuid', $data['client_uuid'])->first();
@@ -80,9 +95,9 @@ class MaintenanceCaseController extends Controller
                 'last_edited_by' => $actor->id,
                 'operation_category_id' => $data['operation_category_id'] ?? null,
                 'status' => MaintenanceCase::STATUS_OPEN,
-                'priority' => $data['priority'],
+                'priority' => $data['priority'] ?? 'normal',
                 'description' => $data['description'] ?? null,
-                'identified_at' => $data['identified_at'],
+                'identified_at' => $data['identified_at'] ?? now(),
             ];
         if ($supportsCaseIdempotency) {
             $caseAttributes['client_uuid'] = $data['client_uuid'] ?? null;
@@ -97,6 +112,14 @@ class MaintenanceCaseController extends Controller
                     'photo_id' => $photo->id, 'type' => 'before', 'maintenance_case_id' => $case->id,
                 ]);
             }
+
+            // The map reads the riser status directly; keep it synchronized with
+            // the real open case without changing operation approval states.
+            $riser->update(['status' => 'flagRiser']);
+            $transfer = $this->workflow->flagRiser($riser, $actor);
+            $this->audit->record('riser.flagged_for_maintenance', $riser, null, [
+                'riser_id' => $riser->id, 'maintenance_case_id' => $case->id, 'workflow_transfer_id' => $transfer->id,
+            ]);
 
             return $case;
         });
@@ -138,8 +161,156 @@ class MaintenanceCaseController extends Controller
                     ? url('/api/v1/supervisor/photos/'.$image->id) : route('maintenance-cases.photos.show', $image),
             ])->values(),
         ])->values());
+        $case->setAttribute('materials_total', $this->materialsTotal($maintenanceCase->operations()->with('operationMaterial')->get()));
 
         return response()->json(['case' => $case]);
+    }
+
+    /** Render the RTL grouped operation entry form for an existing case. */
+    public function createOperations(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+        if (! $maintenanceCase->canAcceptOperations()) {
+            $message = $this->operationEntryStatusMessage($maintenanceCase);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $message, 'status' => $maintenanceCase->status], 409);
+            }
+
+            return redirect()->route('riser.show', ['id' => $maintenanceCase->riser_id])->with('error', $message);
+        }
+        return view('maintenance-cases.operations-create', [
+            'maintenanceCase' => $maintenanceCase->load('riser'),
+            'operationCategories' => OperationCategory::query()->where('is_active', true)->orderBy('sort')->orderBy('title')->get(['id', 'title', 'code']),
+            'materialsPayload' => Material::query()->with('category:id,title')->where('is_active', true)->orderBy('title')->get(['id', 'material_category_id', 'title', 'code', 'unit'])->map(fn (Material $material): array => [
+                'id' => (int) $material->id,
+                'category_id' => $material->material_category_id ? (int) $material->material_category_id : null,
+                'category_title' => $material->category?->title,
+                'title' => $material->title,
+                'code' => $material->code,
+                'unit' => $material->unit,
+            ])->values()->all(),
+        ]);
+    }
+
+    /** Store all selected operations and their materials atomically as drafts. */
+    public function storeOperations(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+        if (! $maintenanceCase->canAcceptOperations()) {
+            $message = $this->operationEntryStatusMessage($maintenanceCase);
+            if (! $request->expectsJson()) {
+                return redirect()->route('riser.show', ['id' => $maintenanceCase->riser_id])->with('error', $message);
+            }
+
+            return response()->json([
+                'message' => $message,
+                'status' => $maintenanceCase->status,
+            ], 409);
+        }
+        $riserDetailsUrl = route('riser.show', ['id' => $maintenanceCase->riser_id]);
+
+        $data = $request->validate([
+            'client_uuid' => ['required', 'uuid'],
+            'operations' => ['required', 'array', 'min:1', 'max:50'],
+            'operations.*.operation_category_id' => ['required', 'integer', 'exists:operation_categories,id'],
+            'operations.*.operation_date' => ['required', 'date'],
+            'operations.*.description' => ['nullable', 'string', 'max:10000'],
+            'operations.*.materials' => ['nullable', 'array', 'max:100'],
+            'operations.*.materials.*.material_id' => ['required', 'integer', 'distinct'],
+            'operations.*.materials.*.qty' => ['required', 'numeric', 'gt:0', 'max:99999999.99'],
+            'operations.*.photos_after' => ['nullable', 'array', 'max:20'],
+            'operations.*.photos_after.*' => ['image', 'max:10240'],
+        ]);
+
+        $categoryIds = collect($data['operations'])->pluck('operation_category_id')->map(fn ($id) => (int) $id)->unique()->values();
+        abort_unless(OperationCategory::query()->where('is_active', true)->whereIn('id', $categoryIds)->count() === $categoryIds->count(), 422, 'یکی از انواع عملیات انتخاب‌شده فعال نیست.');
+        $materialIds = collect($data['operations'])->flatMap(fn ($operation) => collect($operation['materials'] ?? [])->pluck('material_id'))->map(fn ($id) => (int) $id)->unique()->values();
+        abort_unless(Material::query()->where('is_active', true)->whereIn('id', $materialIds)->count() === $materialIds->count(), 422, 'یکی از مصالح انتخاب‌شده معتبر یا فعال نیست.');
+
+        $supportsIdempotency = Schema::hasColumn('operations', 'client_uuid');
+        abort_unless($supportsIdempotency, 503, 'ثبت گروهی تا زمان اعمال migration کلیدهای idempotency در دسترس نیست.');
+        if ($supportsIdempotency) {
+            $existing = Operation::query()->where('client_uuid', $data['client_uuid'])->first();
+            if ($existing) {
+                abort_unless((int) $existing->maintenance_case_id === (int) $maintenanceCase->id && (int) $existing->user_id === (int) $actor->id, 409);
+                $existingOperations = $maintenanceCase->operations()->with(['operationCategory', 'operationMaterial'])->get();
+                $message = count($existingOperations).' عملیات تعمیراتی قبلاً با موفقیت ثبت شده است.';
+                if ($request->expectsJson()) {
+                    session()->flash('success', $message);
+                    return response()->json([
+                        'success' => true,
+                        'operations' => $existingOperations,
+                        'idempotent_replay' => true,
+                        'redirect_url' => $riserDetailsUrl,
+                        'message' => $message,
+                    ]);
+                }
+
+                return redirect()->to($riserDetailsUrl)->with('success', $message);
+            }
+        }
+
+        $created = DB::transaction(function () use ($data, $request, $actor, $maintenanceCase, $supportsIdempotency): array {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
+            abort_unless($case->canAcceptOperations(), 409, $this->operationEntryStatusMessage($case));
+            $beforeCase = $this->audit->attributesFor($case);
+            $operations = [];
+            foreach ($data['operations'] as $operationIndex => $operationData) {
+                $attributes = [
+                    'riser_id' => $case->riser_id,
+                    'maintenance_case_id' => $case->id,
+                    'group_user_id' => $case->assigned_group_id,
+                    'operation_category_id' => $operationData['operation_category_id'],
+                    'operation_date' => $operationData['operation_date'],
+                    'status' => 'draft',
+                    'priority' => $case->priority,
+                    'description' => $operationData['description'] ?? null,
+                    'user_id' => $actor->id,
+                    'contract_id' => $actor->contract_id,
+                ];
+                // The first operation carries the batch key. Remaining operations
+                // get their own keys because operations.client_uuid is unique.
+                if ($supportsIdempotency) {
+                    $attributes['client_uuid'] = $operationIndex === array_key_first($data['operations'])
+                        ? $data['client_uuid']
+                        : (string) Str::uuid();
+                }
+                $operation = Operation::query()->create($attributes);
+                $this->replaceOperationMaterialsFromList($operation, $operationData['materials'] ?? []);
+                $this->audit->record('operation.created', $operation, null, $this->audit->attributesFor($operation));
+                $this->audit->record('operation.materials_updated', $operation, null, ['materials' => $this->materialSnapshot($operation)]);
+                foreach ($request->file('operations.'.$operationIndex.'.photos_after', []) as $file) {
+                    $photo = $this->storePhoto($file, $actor, $case->riser, $case, $operation, 'after');
+                    $this->audit->record('operation.photo_added', $photo, null, ['photo_id' => $photo->id, 'operation_id' => $operation->id]);
+                }
+                $operations[] = $operation->load(['operationCategory', 'operationMaterial', 'images']);
+            }
+            $case->update(['status' => MaintenanceCase::STATUS_IN_PROGRESS, 'last_edited_by' => $actor->id]);
+            $this->audit->record('maintenance_case.operations_batch_created', $case, $beforeCase, $this->audit->attributesFor($case), ['operation_ids' => array_map(fn (Operation $operation) => $operation->getKey(), $operations)]);
+            return $operations;
+        });
+
+        $message = count($created).' عملیات تعمیراتی با موفقیت ثبت شد.';
+        if (! $request->expectsJson()) {
+            return redirect()->to($riserDetailsUrl)->with('success', $message);
+        }
+
+        session()->flash('success', $message);
+
+        return response()->json([
+            'success' => true,
+            'operations' => $created,
+            'materials_total' => $this->materialsTotal(collect($created)),
+            'redirect_url' => $riserDetailsUrl,
+            'message' => $message,
+        ], 201);
     }
 
     public function photo(Request $request, OperationImage $operationPhoto)
@@ -460,6 +631,9 @@ class MaintenanceCaseController extends Controller
                 'closed_at' => $approved && ! $hasPending ? now() : null,
                 'last_edited_by' => $actor->id,
             ]);
+            Riser::query()->whereKey($case->riser_id)->update([
+                'status' => $case->status === MaintenanceCase::STATUS_COMPLETED ? 'submitOperation' : 'flagRiser',
+            ]);
             WorkflowTransfer::query()->where('operation_id', $operation->id)
                 ->where('user_id_to', $actor->id)->where('type', WorkflowTransfer::TYPE_OPERATION_REVIEW_REQUEST)
                 ->whereNull('receive_date')->update(['receive_date' => now()]);
@@ -558,6 +732,15 @@ class MaintenanceCaseController extends Controller
         return response()->json(['success' => true, 'case' => $maintenanceCase->fresh()->load('operations.operationMaterial')]);
     }
 
+    private function operationEntryStatusMessage(MaintenanceCase $case): string
+    {
+        return match ($case->status) {
+            MaintenanceCase::STATUS_SUBMITTED => 'این پرونده برای بررسی ارسال شده و تا تعیین تکلیف قابل ویرایش نیست.',
+            MaintenanceCase::STATUS_COMPLETED => 'این پرونده نهایی و بسته شده است و ثبت عملیات جدید برای آن مجاز نیست.',
+            default => 'وضعیت فعلی پرونده اجازه ثبت عملیات جدید را نمی‌دهد.',
+        };
+    }
+
     private function authorizeFieldEntry(User $user): void
     {
         abort_unless(! $user->isSuperAdmin() && $user->hasRole('supervisor'), 403);
@@ -629,5 +812,34 @@ class MaintenanceCaseController extends Controller
                 'description' => 'Field maintenance record; quantities only.',
             ]);
         }
+    }
+
+    /** @param array<int, array{material_id:int|numeric-string,qty:numeric}> $materials */
+    private function replaceOperationMaterialsFromList(Operation $operation, array $materials): void
+    {
+        foreach ($materials as $material) {
+            OperationMaterial::query()->create([
+                'operation_id' => $operation->id,
+                'material_id' => (int) $material['material_id'],
+                'qty' => $material['qty'],
+                'price' => 0,
+                'total' => 0,
+                'description' => 'Field maintenance record; quantities only.',
+            ]);
+        }
+    }
+
+    /** @param iterable<Operation> $operations @return array<int, array<string, mixed>> */
+    private function materialsTotal(iterable $operations): array
+    {
+        $totals = [];
+        foreach ($operations as $operation) {
+            foreach ($operation->operationMaterial as $material) {
+                $key = (int) $material->id;
+                $totals[$key] ??= ['material_id' => $key, 'title' => $material->title, 'unit' => $material->unit, 'qty' => 0];
+                $totals[$key]['qty'] += (float) $material->pivot->qty;
+            }
+        }
+        return array_values($totals);
     }
 }

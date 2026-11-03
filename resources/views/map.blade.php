@@ -6,6 +6,10 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link href="{{ url('css/ol.css') }}" rel="stylesheet">
     <script src="{{ asset('js/ol.js') }}"></script>
+    @if($canFieldReport)
+    <link href="{{ url('css/dropzone.css') }}" rel="stylesheet">
+    <script src="{{ asset('js/dropzone.js') }}"></script>
+    @endif
 
 
     <style>
@@ -104,6 +108,12 @@
         .maintenance-modal { position: fixed; inset: 0; z-index: 1080; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(15, 23, 42, .58); }
         .maintenance-modal.is-open { display: flex; }
         .maintenance-dialog { width: min(760px, 100%); max-height: 92vh; overflow: auto; border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); padding: 20px; }
+        .maintenance-dialog form { margin: 0; }
+        .maintenance-footer { position: sticky; bottom: -20px; z-index: 2; display: flex; justify-content: flex-end; gap: 8px; margin: 20px -20px -20px; padding: 14px 20px; background: rgba(255,255,255,.97); border-top: 1px solid var(--border); box-shadow: 0 -8px 20px rgba(15,23,42,.06); }
+        #maintenancePhotoDropzone { border: 2px dashed var(--border-2); border-radius: 12px; background: var(--surface-2); min-height: 145px; padding: 20px; }
+        #maintenancePhotoDropzone .dz-message { color: var(--text-muted); margin: 22px 0; }
+        #maintenancePhotoDropzone .dz-preview .dz-image { border-radius: 10px; }
+        @media (max-width: 575.98px) { .maintenance-dialog { padding: 14px; max-height: 94vh; } .maintenance-footer { bottom: -14px; margin: 16px -14px -14px; padding: 12px 14px; } .maintenance-footer .btn { flex: 1; } }
         .maintenance-preview { display: flex; gap: 8px; flex-wrap: wrap; }
         .maintenance-preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
 
@@ -275,6 +285,7 @@
                 @csrf
                 <input type="hidden" name="riser_id" id="maintenanceRiserId">
                 <div class="row g-3">
+                    @if(false)
                     <div class="col-md-6"><label class="form-label">نوع خرابی / عملیات پیشنهادی</label><select class="form-select" name="operation_category_id"><option value="">انتخاب نوع</option>@foreach($operationCategories as $category)<option value="{{ $category->id }}">{{ $category->title }}</option>@endforeach</select></div>
                     <div class="col-md-6"><label class="form-label">اولویت</label><select class="form-select" name="priority" required><option>کم</option><option selected>متوسط</option><option>زیاد</option><option>فوری</option></select></div>
                     <div class="col-md-6"><label class="form-label">زمان شناسایی</label><input class="form-control" name="identified_at" type="datetime-local" required></div>
@@ -283,7 +294,7 @@
                 </div>
                 <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn btn-outline-secondary" onclick="closeMaintenanceModal()">انصراف</button><button class="btn btn-warning" type="submit">ثبت نیاز به تعمیر</button></div>
             </form>
-            <form id="maintenanceOperationForm" class="d-none">
+            @if(false)
                 @csrf
                 <div class="alert alert-info">اطلاعات اجرای گروه تعمیراتی را پس از انجام کار ثبت کنید.</div>
                 <div class="row g-3">
@@ -294,8 +305,15 @@
                     <div class="col-12"><label class="form-label">تصاویر بعد از تعمیر</label><input class="form-control" name="photos_after[]" type="file" accept="image/*" multiple><div class="maintenance-preview mt-2" data-preview-for="photos_after[]"></div></div>
                 </div>
                 <div class="d-flex justify-content-end gap-2 mt-3"><button class="btn btn-primary" type="submit">ارسال گزارش به رئیس ناحیه</button></div>
-            </form>
+            @endif
+            @endif
+            <div class="mb-3"><label class="form-label">عکس‌های نشانه‌گذاری (اختیاری)</label><input class="form-control" name="photos_before[]" type="file" accept="image/*" multiple><div class="maintenance-preview mt-2" data-preview-for="photos_before[]"></div></div>
             <div id="maintenanceMessage" class="small mt-2" role="status" aria-live="polite"></div>
+            <div class="maintenance-footer">
+                <button type="button" class="btn btn-outline-secondary" onclick="closeMaintenanceModal()">انصراف</button>
+                <button id="maintenanceSubmitButton" class="btn btn-warning" type="submit">ثبت نشانه‌گذاری</button>
+            </div>
+            </form>
         </section>
     </div>
     @endif
@@ -478,29 +496,56 @@
         const canViewRisers = @json($canViewRisers);
         @if($canFieldReport)
         const maintenanceCaseStoreUrl = @json(route('maintenance-cases.store'));
-        const maintenanceCaseBaseUrl = @json(url('/maintenance-cases'));
-        let selectedCaseId = null;
+        let selectedRiserId = null;
+        let markingDropzone = null;
+        if (window.Dropzone) {
+            try {
+                Dropzone.autoDiscover = false;
+        markingDropzone = new Dropzone('#maintenancePhotoDropzone', {
+            url: maintenanceCaseStoreUrl,
+            paramName: 'photos_before',
+            autoProcessQueue: false,
+            uploadMultiple: false,
+            parallelUploads: 20,
+            maxFiles: 20,
+            maxFilesize: 10,
+            acceptedFiles: 'image/*',
+            addRemoveLinks: true,
+            dictDefaultMessage: 'تصاویر را اینجا رها کنید یا برای انتخاب کلیک کنید',
+            dictFallbackMessage: 'مرورگر شما از بارگذاری فایل پشتیبانی نمی‌کند.',
+            dictInvalidFileType: 'فرمت تصویر معتبر نیست.',
+            dictFileTooBig: 'حجم هر تصویر حداکثر ۱۰ مگابایت است.',
+            dictMaxFilesExceeded: 'حداکثر ۲۰ تصویر قابل انتخاب است.',
+            dictRemoveFile: 'حذف تصویر'
+        });
+        markingDropzone.on('error', function(file, errorMessage) {
+            const message = document.getElementById('maintenanceMessage');
+            message.textContent = typeof errorMessage === 'string' ? errorMessage : 'فایل انتخاب‌شده معتبر نیست.';
+        });
+            } catch (error) {
+                console.warn('Marking Dropzone could not be initialized; map remains available.', error);
+            }
+        } else {
+            console.warn('Dropzone asset is unavailable; marking without photos remains available.');
+        }
         function openMaintenanceModal(id, code) {
-            selectedCaseId = null;
+            selectedRiserId = id;
+            document.getElementById('maintenanceTitle').textContent = '\u0646\u0634\u0627\u0646\u0647\u200c\u06af\u0630\u0627\u0631\u06cc \u0639\u0644\u0645\u06a9';
+            document.getElementById('maintenanceSubmitButton').textContent = '\u062b\u0628\u062a \u0646\u0634\u0627\u0646\u0647\u200c\u06af\u0630\u0627\u0631\u06cc';
+            document.getElementById('maintenanceTitle').textContent = 'نشانه‌گذاری علمک';
             document.getElementById('maintenanceCaseForm').reset();
-            document.getElementById('maintenanceOperationForm').reset();
+            document.getElementById('maintenanceSubmitButton').disabled = false;
+            if (markingDropzone) markingDropzone.removeAllFiles(true);
+            document.querySelectorAll('#maintenanceCaseForm > .mb-3 input[name="photos_before[]"]').forEach(input => input.closest('.mb-3')?.remove());
             document.getElementById('maintenanceRiserId').value = id;
             document.getElementById('maintenanceRiserLabel').textContent = `علمک ${code} (#${id})`;
             document.getElementById('maintenanceMessage').textContent = '';
             document.getElementById('maintenanceCaseForm').classList.remove('d-none');
-            document.getElementById('maintenanceOperationForm').classList.add('d-none');
-            const now = new Date();
-            document.querySelector('#maintenanceCaseForm [name="identified_at"]').value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-            document.querySelector('#maintenanceOperationForm [name="operation_date"]').value = now.toISOString().slice(0, 10);
             document.getElementById('maintenanceModal').classList.add('is-open');
         }
         function openExistingMaintenanceCase(caseId) {
             if (!caseId) return;
-            selectedCaseId = caseId;
-            document.getElementById('maintenanceCaseForm').classList.add('d-none');
-            document.getElementById('maintenanceOperationForm').classList.remove('d-none');
-            document.getElementById('maintenanceMessage').textContent = `پرونده ${caseId} انتخاب شد؛ بعد از انجام تعمیر گزارش را ثبت کنید.`;
-            document.getElementById('maintenanceModal').classList.add('is-open');
+            window.location.href = riserShowRoute.replace('__ID__', encodeURIComponent(selectedRiserId || ''));
         }
         function closeMaintenanceModal() { document.getElementById('maintenanceModal').classList.remove('is-open'); }
         document.querySelectorAll('#maintenanceModal input[type="file"]').forEach(input => input.addEventListener('change', () => {
@@ -514,38 +559,42 @@
             event.preventDefault();
             const form = event.currentTarget;
             const message = document.getElementById('maintenanceMessage');
+            const submitButton = form.querySelector('button[type="submit"]');
+            if (submitButton) submitButton.disabled = true;
             message.textContent = 'در حال ثبت پرونده…';
             try {
-                const response = await fetch(maintenanceCaseStoreUrl, { method: 'POST', body: new FormData(form), headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content } });
+                const formData = new FormData(form);
+                if (markingDropzone) markingDropzone.files.filter(file => file.accepted !== false).forEach(file => formData.append('photos_before[]', file, file.name));
+                const response = await fetch(maintenanceCaseStoreUrl, { method: 'POST', body: formData, headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content } });
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || `HTTP ${response.status}`);
-                selectedCaseId = payload.case.id;
+                if (markingDropzone) markingDropzone.removeAllFiles(true);
+                form.reset();
                 form.classList.add('d-none');
-                const operationForm = document.getElementById('maintenanceOperationForm');
-                operationForm.classList.remove('d-none');
-                const caseType = payload.case.operation_category_id;
-                if (caseType) operationForm.querySelector('[name="operation_category_id"]').value = caseType;
-                message.textContent = `پرونده ${selectedCaseId} ثبت شد. پس از تعمیر، فرم گزارش را تکمیل کنید.`;
                 if (operationalLayer) operationalLayer.getSource().refresh();
-            } catch (error) { message.textContent = error.message; }
+                closeMaintenanceModal();
+                const notice = document.createElement('div');
+                notice.className = 'alert alert-success position-fixed top-0 start-50 translate-middle-x mt-3 shadow';
+                notice.style.zIndex = '2000';
+                notice.textContent = payload.existing_case ? 'پرونده باز قبلی برای این علمک استفاده شد.' : 'نشانه‌گذاری با موفقیت ثبت شد.';
+                document.body.append(notice);
+                setTimeout(() => notice.remove(), 3500);
+            } catch (error) { message.textContent = error.message; if (submitButton) submitButton.disabled = false; }
         });
-        document.getElementById('maintenanceOperationForm').addEventListener('submit', async event => {
-            event.preventDefault();
-            if (!selectedCaseId) return;
-            const form = event.currentTarget;
-            const formData = new FormData(form);
-            form.querySelectorAll('[data-material-id]').forEach(input => { if (Number(input.value) > 0) formData.append(`materials[${input.dataset.materialId}]`, input.value); });
-            const message = document.getElementById('maintenanceMessage');
+        @if(false)
+        /* The repair form is intentionally not part of the marking flow. */
+            /* legacy automatic repair submission removed */
             message.textContent = 'در حال ارسال گزارش به رئیس ناحیه…';
             try {
-                const response = await fetch(`${maintenanceCaseBaseUrl}/${selectedCaseId}/operation`, { method: 'POST', body: formData, headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content } });
+                /* no automatic repair submission after marking */
                 const payload = await response.json();
                 if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || `HTTP ${response.status}`);
                 message.textContent = 'گزارش تعمیر برای بررسی رئیس ناحیه ارسال شد.';
                 if (operationalLayer) operationalLayer.getSource().refresh();
-                setTimeout(closeMaintenanceModal, 1200);
+                /* no automatic redirect */
             } catch (error) { message.textContent = error.message; }
         });
+        @endif
         @endif
         /* CLICK */
         map.on('click', function(evt) {
@@ -588,6 +637,7 @@
                 if (selected.get('case_status')) addLine('وضعیت پرونده', selected.get('case_status'));
                 @if($canFieldReport)
                 if (activeCaseCount > 0 && selected.get('case_id')) {
+                    selectedRiserId = id;
                     const existingCase = document.createElement('button');
                     existingCase.type = 'button'; existingCase.className = 'btn btn-outline-primary btn-sm w-100 mt-2';
                     existingCase.textContent = 'ثبت گزارش تعمیر پرونده باز';
@@ -760,6 +810,8 @@
             }
         }
 
+        // Keep the zone overlay state explicit so the hide action cannot interrupt map startup.
+        let zoneLayer = null;
         fetch('{{ route('myextent') }}')
             .then(response => {
                 if (!response.ok) {

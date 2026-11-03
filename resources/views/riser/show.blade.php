@@ -330,6 +330,17 @@
 
     <div class="container-fluid py-4">
 
+        @if(session('success'))
+            <div class="alert alert-success shadow-sm" role="alert" aria-live="polite">
+                {{ session('success') }}
+            </div>
+        @endif
+        @if(session('error'))
+            <div class="alert alert-warning shadow-sm" role="alert" aria-live="assertive">
+                {{ session('error') }}
+            </div>
+        @endif
+
         <!-- HEADER -->
 
         <div class="page-header">
@@ -466,7 +477,7 @@
                                 <i class="bi bi-camera"></i>
                                 ثبت عکس قبل از عملیات
                             </button>
-                            <button class="btn btn-success" onclick="openCreateOperation()">
+                            <button id="legacyCreateOperationButton" class="btn btn-success d-none" onclick="openCreateOperation()">
                                 <i class="bi bi-plus-circle"></i>
                                 عملیات جدید
                             </button>
@@ -1187,6 +1198,16 @@
 
             document.getElementById('riserStatus').innerHTML = riserData.status || 'نامشخص';
 
+            document.getElementById('maintenanceRegisterButton')?.remove();
+            if (riserData.open_case?.id && riserData.open_case.operations_create_url) {
+                const button = document.createElement('a');
+                button.id = 'maintenanceRegisterButton';
+                button.href = riserData.open_case.operations_create_url;
+                button.className = 'btn btn-primary mt-3';
+                button.textContent = 'ثبت تعمیرات';
+                document.querySelector('.page-header .col-lg-8')?.append(button);
+            }
+
         }
 
         async function loadOperationTypes() {
@@ -1277,7 +1298,9 @@
             // پیدا کردن اولین operation ای که عکس داره
             const operationWithPhotos = riserData.operations.find(op => (op.photos ?? []).length > 0);
 
-            const photos = operationWithPhotos?.photos ?? [];
+            const photos = operationWithPhotos?.photos?.length
+                ? operationWithPhotos.photos
+                : (riserData.open_case?.photos ?? []);
 
             if (photos.length === 0) {
                 document.getElementById('thumbnailContainer').innerHTML = "";

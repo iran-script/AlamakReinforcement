@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use App\Services\WorkflowService;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WorkflowTransfer;
+use App\Models\MaintenanceCase;
 use App\Services\MapProfileService;
 use Illuminate\Validation\Rule;
 
@@ -183,8 +184,20 @@ class RiserController extends Controller
         }
 
         $zone = DB::table('zone')
+            ->leftJoin('organizations', 'organizations.id', '=', 'zone.organization_id')
             ->whereRaw('ST_Intersects(geom, (SELECT geom FROM riser WHERE id = ?))', [$id])
-            ->first(['id', 'name']);
+            ->first(['zone.id', 'zone.name', 'zone.organization_id', 'organizations.name as organization_name']);
+
+        $caseQuery = MaintenanceCase::query()
+            ->where('riser_id', $id)
+            ->whereIn('status', [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED])
+            ->with(['photos:id,maintenance_case_id,operation_id,riser_id,type,path,original_name,uploaded_by']);
+        if (! $currentUser->isSuperAdmin()) {
+            $caseQuery->when($currentUser->hasRole('boss'),
+                fn ($query) => $query->whereIn('assigned_group_id', $currentUser->managedGroupIds()),
+                fn ($query) => $query->where('assigned_group_id', $currentUser->group_user_id));
+        }
+        $openCase = $caseQuery->latest('identified_at')->first();
 
         $operation_cat = DB::table('operation_categories')
             ->orderBy('id')
@@ -295,6 +308,22 @@ class RiserController extends Controller
 
             'code' => $riser->r_giscode,
             'zone_name' => $zone?->name,
+            'zone_id' => $zone?->id,
+            'organization_name' => $zone?->organization_name,
+            'open_case' => $openCase ? [
+                'id' => $openCase->id,
+                'status' => $openCase->status,
+                'identified_at' => $openCase->identified_at,
+                'operations_count' => $openCase->operations()->count(),
+                'operations_create_url' => $openCase->canAcceptOperations()
+                    ? route('maintenance-cases.operations.create', $openCase)
+                    : null,
+                'photos' => $openCase->photos->map(fn ($photo) => [
+                    'id' => $photo->id,
+                    'type' => $photo->type,
+                    'url' => route('maintenance-cases.photos.show', $photo),
+                ])->values(),
+            ] : null,
             'workflow' => $workflow,
 
             'operation_cat' => $operation_cat,

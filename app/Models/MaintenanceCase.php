@@ -15,6 +15,13 @@ class MaintenanceCase extends Model
     public const STATUS_RETURNED = 'returned';
     public const STATUS_COMPLETED = 'completed';
 
+    /** Statuses in which the assigned group may add or revise operations. */
+    public const OPERATION_ENTRY_STATUSES = [
+        self::STATUS_OPEN,
+        self::STATUS_IN_PROGRESS,
+        self::STATUS_RETURNED,
+    ];
+
     protected $fillable = [
         'riser_id', 'reported_by', 'assigned_group_id', 'operation_category_id', 'client_uuid',
         'status', 'priority', 'description', 'identified_at', 'closed_at',
@@ -35,6 +42,11 @@ class MaintenanceCase extends Model
     /** Backward-compatible accessor for legacy callers; new code must use operations(). */
     public function operation(): HasOne { return $this->hasOne(Operation::class)->latestOfMany(); }
     public function photos(): HasMany { return $this->hasMany(OperationImage::class, 'maintenance_case_id'); }
+
+    public function canAcceptOperations(): bool
+    {
+        return in_array($this->status, self::OPERATION_ENTRY_STATUSES, true);
+    }
 
     public function scopeVisibleTo($query, User $user)
     {

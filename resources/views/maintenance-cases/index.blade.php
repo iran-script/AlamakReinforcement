@@ -5,6 +5,7 @@
 @section('content')
 @php($canManageCases = auth()->user()->hasRole('superadmin') || (auth()->user()->hasRole('boss') && auth()->user()->can('operation.edit')))
 @php($canReviewCases = auth()->user()->hasRole('boss') && auth()->user()->can('operation.approve'))
+@php($canAddOperations = auth()->user()->hasRole('supervisor'))
 <div class="container-fluid py-3" dir="rtl">
     <div class="d-flex align-items-center justify-content-between mb-3">
         <div><h1 class="h4 mb-1">پرونده‌های تعمیر</h1><p class="text-muted mb-0">پرونده‌ها و گزارش‌های گروه کاری مجاز شما</p></div>
@@ -38,8 +39,11 @@
                     <td>{{ $case->assignedGroup?->name ?? '—' }}</td>
                     <td>{{ $case->identified_at?->format('Y-m-d') }}</td>
                     <td>@forelse($case->operations as $operation){{ $operation->operationCategory?->title }} · {{ $operation->operation_date }} · {{ $operation->status }}<br>@empty — @endforelse</td>
-                    @if($canManageCases || $canReviewCases)
+                    @if($canManageCases || $canReviewCases || $canAddOperations)
                     <td class="text-nowrap">
+                        @if($canAddOperations && in_array($case->status, ['open', 'in_progress', 'returned'], true))
+                            <a class="btn btn-sm btn-primary mb-2" href="{{ route('maintenance-cases.operations.create', $case) }}">ثبت گروهی عملیات</a>
+                        @endif
                         @if($canReviewCases && $case->status === 'submitted' && $case->operations->isNotEmpty())
                             @foreach($case->operations as $operation)
                                 <div class="small text-muted">{{ $operation->operationCategory?->title }} · {{ $operation->operation_date }} · {{ $operation->status }}</div>
@@ -67,6 +71,10 @@
                             </details>
                         @endif
                     </td>
+                        @if($case->operations->isNotEmpty())
+                            @php($totals = $case->operations->flatMap->operationMaterial->groupBy('id')->map(fn($items) => ['title' => $items->first()->title, 'unit' => $items->first()->unit, 'qty' => $items->sum(fn($m) => (float) $m->pivot->qty)]))
+                            <details class="mt-2"><summary class="small text-muted">جمع کل مصالح</summary><div class="small mt-1">@foreach($totals as $total){{ $total['title'] }}: {{ $total['qty'] }} {{ $total['unit'] }}@if(!$loop->last) · @endif @endforeach</div></details>
+                        @endif
                     @endif
                 </tr>
             @empty
@@ -74,7 +82,21 @@
             @endforelse
             </tbody>
         </table>
-    </div><div class="card-body">{{ $cases->links() }}</div></div>
+    </div>
+    <div class="card-body border-top">
+        @foreach($cases as $case)
+            @if($case->operations->isNotEmpty())
+                <div class="mb-3"><strong>عملیات پرونده #{{ $case->id }}</strong>
+                    <div class="row g-2 mt-1">
+                        @foreach($case->operations as $operation)
+                            <div class="col-md-6 col-xl-4"><div class="border rounded p-2 h-100"><div class="d-flex justify-content-between"><strong>{{ $operation->operationCategory?->title }}</strong><span class="badge bg-secondary">{{ $operation->status }}</span></div><div class="small text-muted">{{ $operation->operation_date }} · {{ $operation->description ?: 'بدون شرح' }}</div><div class="small mt-1">@forelse($operation->operationMaterial as $material){{ $material->title }}: {{ $material->pivot->qty }} {{ $material->unit }}@if(!$loop->last) · @endif @empty مصالحی ثبت نشده است @endforelse</div>@if($canAddOperations && in_array($operation->status, ['draft', 'need_revision'], true))<details class="mt-2"><summary class="small">ویرایش</summary><form class="js-operation-edit mt-2" data-url="{{ route('maintenance-cases.operations.update', [$case, $operation]) }}"><input type="hidden" name="version" value="{{ $operation->updated_at?->toISOString() }}"><input type="hidden" name="operation_category_id" value="{{ $operation->operation_category_id }}"><input class="form-control form-control-sm mb-1" type="date" name="operation_date" value="{{ $operation->operation_date }}"><textarea class="form-control form-control-sm mb-1" name="description">{{ $operation->description }}</textarea>@foreach($operation->operationMaterial as $material)<input class="form-control form-control-sm mb-1" type="number" min="0.0001" step="any" name="materials[{{ $material->id }}]" value="{{ $material->pivot->qty }}">@endforeach<button class="btn btn-sm btn-primary">ذخیره</button></form></details>@endif</div></div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+        @endforeach
+        <div>{{ $cases->links() }}</div>
+    </div></div>
 </div>
 <script>
 (() => {
@@ -91,6 +113,11 @@
         event.preventDefault();
         const response = await fetch(form.dataset.url, {method: 'PUT', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify(Object.fromEntries(new FormData(form)))});
         if (response.ok) window.location.reload(); else showMessage('ذخیره تغییرات انجام نشد. دسترسی و اطلاعات را بررسی کنید.', false);
+    }));
+    document.querySelectorAll('.js-operation-edit').forEach(form => form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const response = await fetch(form.dataset.url, {method: 'PUT', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify(Object.fromEntries(new FormData(form)))});
+        if (response.ok) window.location.reload(); else showMessage('ویرایش عملیات انجام نشد؛ وضعیت پرونده یا مجوز را بررسی کنید.', false);
     }));
 })();
 </script>

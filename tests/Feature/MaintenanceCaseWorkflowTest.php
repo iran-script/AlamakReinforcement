@@ -56,6 +56,90 @@ class MaintenanceCaseWorkflowTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors(['client_uuid']);
     }
 
+    public function test_web_batch_endpoint_registers_three_operations_with_independent_materials_and_totals(): void
+    {
+        [$organization, $zone, $group] = $this->scope('web-batch');
+        $supervisor = $this->user('web-batch-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'WEB-BATCH-'.uniqid());
+        $categories = collect(['حفاری', 'جوشکاری', 'رنگ‌آمیزی'])->map(fn ($title) => OperationCategory::create([
+            'title' => $title, 'code' => 'batch-'.uniqid(), 'is_active' => true,
+        ]));
+        $materialCategoryId = DB::table('material_categories')->insertGetId([
+            'title' => 'Web batch materials', 'code' => 'web-batch-'.uniqid(), 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $materials = collect([
+            ['title' => 'شن', 'unit' => 'kg'], ['title' => 'الکترود', 'unit' => 'عدد'], ['title' => 'رنگ', 'unit' => 'لیتر'],
+        ])->map(fn ($item) => Material::create($item + ['material_category_id' => $materialCategoryId, 'code' => 'mat-'.uniqid(), 'default_price' => 0, 'is_active' => true]));
+        $case = MaintenanceCase::create([
+            'riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id,
+            'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now(),
+        ]);
+
+        $response = $this->actingAs($supervisor)->postJson(route('maintenance-cases.operations.store', $case), [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'operations' => $categories->values()->map(fn ($category, $index) => [
+                'operation_category_id' => $category->id, 'operation_date' => '2026-11-03',
+                'description' => 'Batch operation '.$index,
+                'materials' => [['material_id' => $materials[$index]->id, 'qty' => $index + 1]],
+            ])->all(),
+        ])->assertCreated();
+
+        $response->assertJsonCount(3, 'operations');
+        $this->assertSame(3, Operation::where('maintenance_case_id', $case->id)->count());
+        $this->assertSame(3, DB::table('operation_materials')->whereIn('operation_id', Operation::where('maintenance_case_id', $case->id)->pluck('id'))->count());
+        $this->assertDatabaseHas('audit_logs', ['event' => 'maintenance_case.operations_batch_created', 'auditable_id' => $case->id]);
+        $this->assertSame(6.0, (float) DB::table('operation_materials')->whereIn('operation_id', Operation::where('maintenance_case_id', $case->id)->pluck('id'))->sum('qty'));
+    }
+
+    public function test_web_marking_allows_no_photo_and_uses_system_defaults(): void
+    {
+        [$organization, $zone, $group] = $this->scope('mark-no-photo');
+        $supervisor = $this->user('mark-no-photo-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'MARK-NO-PHOTO-'.uniqid());
+
+        $response = $this->actingAs($supervisor)->postJson(route('maintenance-cases.store'), ['riser_id' => $riserId]);
+
+        $response->assertCreated()->assertJsonPath('case.status', MaintenanceCase::STATUS_OPEN);
+        $this->assertDatabaseHas('maintenance_cases', ['riser_id' => $riserId, 'priority' => 'normal']);
+        $this->assertDatabaseHas('riser', ['id' => $riserId, 'status' => 'flagRiser']);
+        $this->assertSame(0, OperationImage::where('maintenance_case_id', $response->json('case.id'))->count());
+    }
+
+    public function test_web_marking_accepts_photos_and_does_not_create_another_open_case(): void
+    {
+        Storage::fake('local');
+        [$organization, $zone, $group] = $this->scope('mark-photo');
+        $supervisor = $this->user('mark-photo-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'MARK-PHOTO-'.uniqid());
+        $payload = ['riser_id' => $riserId, 'photos_before' => [UploadedFile::fake()->image('mark.jpg')]];
+
+        $first = $this->actingAs($supervisor)->postJson(route('maintenance-cases.store'), $payload)->assertCreated();
+        $second = $this->actingAs($supervisor)->postJson(route('maintenance-cases.store'), ['riser_id' => $riserId])->assertOk()->assertJsonPath('existing_case', true);
+
+        $this->assertSame($first->json('case.id'), $second->json('case.id'));
+        $this->assertSame(1, MaintenanceCase::where('riser_id', $riserId)->whereIn('status', [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED])->count());
+        $this->assertSame(1, OperationImage::where('maintenance_case_id', $first->json('case.id'))->count());
+    }
+
+    public function test_web_batch_endpoint_rolls_back_every_operation_when_one_material_is_invalid(): void
+    {
+        [$organization, $zone, $group] = $this->scope('web-batch-rollback');
+        $supervisor = $this->user('web-batch-rollback-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'WEB-BATCH-ROLLBACK-'.uniqid());
+        $category = OperationCategory::create(['title' => 'Rollback', 'code' => 'rollback-'.uniqid(), 'is_active' => true]);
+        $case = MaintenanceCase::create(['riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id, 'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now()]);
+
+        $this->actingAs($supervisor)->postJson(route('maintenance-cases.operations.store', $case), [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'operations' => [
+                ['operation_category_id' => $category->id, 'operation_date' => '2026-11-03', 'materials' => [['material_id' => 99999999, 'qty' => 1]]],
+            ],
+        ])->assertUnprocessable();
+
+        $this->assertSame(0, Operation::where('maintenance_case_id', $case->id)->count());
+    }
+
     public function test_mobile_case_supports_multiple_independent_draft_operations_and_idempotent_replay(): void
     {
         [$organization, $zone, $group] = $this->scope('multi-operation');

@@ -71,6 +71,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit.index');
     Route::get('/maintenance-cases', [MaintenanceCaseController::class, 'index'])->name('maintenance-cases.index');
     Route::post('/maintenance-cases', [MaintenanceCaseController::class, 'store'])->name('maintenance-cases.store');
+    Route::get('/maintenance-cases/{maintenanceCase}/operations/create', [MaintenanceCaseController::class, 'createOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.create');
+    Route::post('/maintenance-cases/{maintenanceCase}/operations', [MaintenanceCaseController::class, 'storeOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.store');
+    Route::put('/maintenance-cases/{maintenanceCase}/operations/{operation}', [MaintenanceCaseController::class, 'updateOperation'])->whereNumber('maintenanceCase')->whereNumber('operation')->name('maintenance-cases.operations.update');
     Route::get('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase')->name('maintenance-cases.show');
     Route::get('/maintenance-cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto')->name('maintenance-cases.photos.show');
     Route::post('/maintenance-cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase')->name('maintenance-cases.operation.store');
