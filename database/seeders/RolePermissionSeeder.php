@@ -42,6 +42,8 @@ class RolePermissionSeeder extends Seeder
             'maintenance.case.create',
             'maintenance.case.view',
             'audit.view',
+            'maintenance.history.view',
+            'maintenance.case.view-all-zones',
 
             'operation-category.view',
             'operation-category.create',
@@ -71,6 +73,7 @@ class RolePermissionSeeder extends Seeder
             'groupuser.view',
 
             'report.view',
+            'report.export',
 
             'user.view',
             'user.create',
@@ -105,6 +108,12 @@ class RolePermissionSeeder extends Seeder
         Role::findOrCreate('operator', 'web');
 
         Role::findOrCreate('viewer', 'web');
+
+        $globalMaintenanceViewer = Role::findOrCreate('Global Maintenance Viewer', 'web');
+        $globalMaintenanceViewer->syncPermissions(Permission::query()->whereIn('name', [
+            'dashboard.view', 'map.view', 'riser.view', 'operation.view', 'maintenance.case.view',
+            'maintenance.case.view-all-zones', 'maintenance.history.view', 'report.view', 'report.export',
+        ])->where('guard_name', 'web')->get());
 
         /*
         |--------------------------------------------------------------------------

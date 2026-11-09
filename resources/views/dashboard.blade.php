@@ -38,6 +38,30 @@
         <div class="col-12"><small class="text-muted">فیلترهای تاریخ و نوع عملیات روی شاخص‌ها اعمال می‌شوند؛ «کل علمک‌های مجاز» فقط به Zone انتخابی محدود می‌شود.</small></div>
     </div>
 
+    @if($maintenanceApprovalStats)
+        <div class="card-box mt-3 p-3 d-flex flex-wrap justify-content-between align-items-center gap-3" dir="rtl">
+            <div><h5 class="mb-1"><i class="bi bi-check2-square text-primary"></i> تأیید تعمیرات</h5><small class="text-muted">صف بررسی پرونده‌های ارسال‌شده توسط گروه‌های تعمیراتی</small></div>
+            <div class="d-flex flex-wrap gap-3 align-items-center"><span class="small">در انتظار: <strong>{{ number_format($maintenanceApprovalStats['submitted']) }}</strong></span><span class="small">تأییدشده: <strong>{{ number_format($maintenanceApprovalStats['completed']) }}</strong></span><span class="small">برگشت‌خورده: <strong>{{ number_format($maintenanceApprovalStats['returned']) }}</strong></span><a class="btn btn-primary" href="{{ route('boss.maintenance-cases.index') }}">ورود به صف تأیید</a></div>
+        </div>
+    @endif
+
+    @if($maintenanceReturnedCount !== null)
+        <div class="card-box mt-3 p-3 d-flex flex-wrap justify-content-between align-items-center gap-3 border-warning" dir="rtl">
+            <div>
+                <h5 class="mb-1"><i class="bi bi-arrow-counterclockwise text-warning"></i> پرونده‌های برگشتی برای اصلاح</h5>
+                <small class="text-muted">پرونده‌هایی که برای اصلاح به شما یا گروه مسئول شما بازگردانده شده‌اند.</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="display-6 fw-bold text-warning">{{ number_format($maintenanceReturnedCount) }}</span>
+                @if($maintenanceReturnedCount > 0)
+                    <a class="btn btn-warning" href="{{ route('maintenance-cases.index', ['status' => 'returned']) }}">مشاهده پرونده‌های برگشتی</a>
+                @else
+                    <span class="small text-muted">پرونده برگشتی ندارید</span>
+                @endif
+            </div>
+        </div>
+    @endif
+
     <div class="row g-3 mt-1" id="dashboardCharts" dir="rtl">
         @foreach ([['dashboardMonthlyChart','روند ماهانه عملیات'],['dashboardStatusChart','توزیع وضعیت ثبت‌شده'],['dashboardRiserStatusesChart','وضعیت علمک‌ها (مقدار خام)'],['dashboardTypesChart','عملیات به تفکیک نوع تعمیر'],['dashboardZonesChart','عملیات به تفکیک Zone'],['dashboardPendingZonesChart','عملیات در انتظار تأیید به تفکیک Zone'],['dashboardExecutorsChart','عملکرد مجریان'],['dashboardSupervisorsChart','عملکرد ناظران'],['dashboardMaterialsChart','مصرف مصالح (مقدار و واحد)'],['dashboardMaterialsZoneChart','مصرف مصالح در هر Zone (مقدار و واحد)'],['dashboardRisersChart','علمک‌های پرتکرار'],['dashboardApprovalChart','روند تأیید و برگشت'],['dashboardCompareChart','مقایسه دو بازه زمانی']] as [$canvas,$title])
             <div class="col-12 col-xl-6"><div class="card-box p-3 h-100"><h5>{{ $title }}</h5><div class="dashboard-loading text-muted">در حال بارگذاری…</div><div class="dashboard-empty text-muted" hidden>برای این فیلتر داده‌ای وجود ندارد.</div><div class="position-relative" style="height:280px"><canvas id="{{ $canvas }}" aria-label="{{ $title }}" hidden></canvas></div></div></div>

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Operation;
 use App\Models\Riser;
+use App\Models\Zone;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -139,6 +140,7 @@ class ReportService
         ]);
 
         $repairCount = \Illuminate\Support\Facades\DB::table('operations')->selectRaw('COUNT(*)')
+            ->whereNull('operations.deleted_at')
             ->whereColumn('operations.riser_id', 'maintenance_cases.riser_id');
         if (! $user->isSuperAdmin()) {
             $visibleOperationGroups = $user->hasRole('boss') ? $user->managedGroupIds() : array_filter([(int) $user->group_user_id]);
@@ -161,7 +163,9 @@ class ReportService
 
         if (! $user->hasRole('superadmin')) {
             $query->whereHas('riser', fn ($riser) => $riser->visibleTo($user));
-            if ($user->hasRole('boss')) {
+            if ($user->isGlobalMaintenanceViewer()) {
+                // Organization-wide maintenance read scope; no group restriction.
+            } elseif ($user->hasRole('boss')) {
                 $groupIds = $user->managedGroupIds();
                 if ($groupIds === []) $query->whereRaw('1 = 0');
                 else $query->whereIn('maintenance_cases.assigned_group_id', $groupIds);
@@ -171,17 +175,26 @@ class ReportService
                 $query->whereRaw('1 = 0');
             }
 
-            if (! empty($validated['zone']) && (int) $validated['zone'] !== (int) $user->zone_id) {
+            if (! empty($validated['zone']) && $user->isGlobalMaintenanceViewer()
+                && ! Zone::query()->whereKey($validated['zone'])->exists()) {
+                abort(403, 'Zone خارج از سازمان مجاز است.');
+            }
+            if (! empty($validated['zone']) && ! $user->isGlobalMaintenanceViewer() && (int) $validated['zone'] !== (int) $user->zone_id) {
                 abort(403, 'Zone خارج از دسترسی شماست.');
             }
             if (! empty($validated['group_user_id'])) {
-                $allowedGroupIds = $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id];
+                $allowedGroupIds = $user->isGlobalMaintenanceViewer()
+                    ? \App\Models\GroupUser::query()->where('organization_id', $user->organization_id)->pluck('id')->all()
+                    : ($user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]);
                 abort_unless(in_array((int) $validated['group_user_id'], $allowedGroupIds, true), 403, 'گروه کاری خارج از دسترسی شماست.');
             }
             if (! empty($validated['supervisor'])) {
-                $allowedGroupIds = $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id];
+                $allowedGroupIds = $user->isGlobalMaintenanceViewer()
+                    ? \App\Models\GroupUser::query()->where('organization_id', $user->organization_id)->pluck('id')->all()
+                    : ($user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]);
                 abort_unless(\App\Models\User::query()->whereKey($validated['supervisor'])
-                    ->where('zone_id', $user->zone_id)->where('organization_id', $user->organization_id)
+                    ->when(! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->where('zone_id', $user->zone_id))
+                    ->where('organization_id', $user->organization_id)
                     ->whereIn('group_user_id', $allowedGroupIds)->exists(), 403, 'ناظر خارج از محدوده شماست.');
             }
         }
@@ -313,19 +326,27 @@ class ReportService
                     $query->whereIn('operations.group_user_id', $managedGroupIds);
                 }
             }
-            if (! empty($validated['zone']) && (int) $validated['zone'] !== (int) $user->zone_id) {
+            if (! empty($validated['zone']) && $user->isGlobalMaintenanceViewer()
+                && ! Zone::query()->whereKey($validated['zone'])->exists()) {
+                abort(403, 'Zone خارج از سازمان مجاز است.');
+            }
+            if (! empty($validated['zone']) && ! $user->isGlobalMaintenanceViewer() && (int) $validated['zone'] !== (int) $user->zone_id) {
                 abort(403, 'محدوده انتخاب‌شده خارج از دسترسی شماست.');
             }
             if (! empty($validated['group_user_id'])) {
-                $allowedGroupIds = $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id];
+                $allowedGroupIds = $user->isGlobalMaintenanceViewer()
+                    ? \App\Models\GroupUser::query()->where('organization_id', $user->organization_id)->pluck('id')->all()
+                    : ($user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]);
                 abort_unless(in_array((int) $validated['group_user_id'], $allowedGroupIds, true), 403, 'گروه کاری خارج از دسترسی شماست.');
             }
             if (! empty($validated['supervisor'])) {
                 $targetSupervisor = \App\Models\User::query()
                     ->whereHas('roles', fn ($roles) => $roles->where('name', 'supervisor')->where('guard_name', 'web'))
                     ->findOrFail($validated['supervisor']);
-                $allowedGroupIds = $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id];
-                abort_unless((int) $targetSupervisor->zone_id === (int) $user->zone_id
+                $allowedGroupIds = $user->isGlobalMaintenanceViewer()
+                    ? \App\Models\GroupUser::query()->where('organization_id', $user->organization_id)->pluck('id')->all()
+                    : ($user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]);
+                abort_unless(($user->isGlobalMaintenanceViewer() || (int) $targetSupervisor->zone_id === (int) $user->zone_id)
                     && (int) $targetSupervisor->organization_id === (int) $user->organization_id
                     && in_array((int) $targetSupervisor->group_user_id, $allowedGroupIds, true), 403);
             }
@@ -387,7 +408,8 @@ class ReportService
             'zone' => (clone $query)->reorder()->setEagerLoads([])
                 ->join('riser', 'riser.id', '=', 'operations.riser_id')
                 ->join('zone', function ($join) { $join->whereRaw('ST_Intersects(zone.geom, riser.geom)'); })
-                ->when(! $user->hasRole('superadmin'), fn ($q) => $q->where('zone.id', $user->zone_id))
+                ->when(! $user->hasRole('superadmin') && ! $user->isGlobalMaintenanceViewer(), fn ($q) => $q->where('zone.id', $user->zone_id))
+                ->when($user->isGlobalMaintenanceViewer(), fn ($q) => $q->where('zone.organization_id', $user->organization_id))
                 ->selectRaw('zone.name AS label, COUNT(DISTINCT operations.id) AS count')
                 ->groupBy('zone.id', 'zone.name')->orderBy('label'),
         };

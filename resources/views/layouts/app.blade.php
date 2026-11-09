@@ -992,6 +992,10 @@
     <!-- CONTENT -->
     <div id="content">
 
+        @if(auth()->user()?->isGlobalMaintenanceViewer())
+            <div class="alert alert-info py-2 mb-3" role="status">دسترسی فقط مشاهده و دریافت گزارش — محدوده: همه Zoneهای سازمان مجاز</div>
+        @endif
+
         @yield('content')
 
     </div>

@@ -6,6 +6,7 @@ use App\Models\GroupUser;
 use App\Models\Material;
 use App\Models\MaintenanceCase;
 use App\Models\OperationImage;
+use App\Models\OperationMaterial;
 use App\Models\Operation;
 use App\Models\OperationCategory;
 use App\Models\Organization;
@@ -14,6 +15,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use App\Services\AuditLogger;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -138,6 +140,168 @@ class MaintenanceCaseWorkflowTest extends TestCase
         ])->assertUnprocessable();
 
         $this->assertSame(0, Operation::where('maintenance_case_id', $case->id)->count());
+    }
+
+    public function test_batch_delete_soft_deletes_operation_and_preserves_audit_and_material_history(): void
+    {
+        [$organization, $zone, $group] = $this->scope('soft-delete');
+        $supervisor = $this->user('soft-delete-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'SOFT-DELETE-'.uniqid());
+        $category = OperationCategory::create(['title' => 'Soft delete repair', 'code' => 'soft-'.uniqid(), 'is_active' => true]);
+        $case = MaintenanceCase::create([
+            'riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id,
+            'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now(),
+        ]);
+        $operation = Operation::create([
+            'riser_id' => $riserId, 'maintenance_case_id' => $case->id, 'group_user_id' => $group->id,
+            'operation_category_id' => $category->id, 'operation_date' => '2026-11-08',
+            'status' => 'draft', 'priority' => 'normal', 'user_id' => $supervisor->id,
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+        $materialCategoryId = DB::table('material_categories')->insertGetId([
+            'title' => 'Soft delete materials', 'code' => 'soft-cat-'.uniqid(), 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $replacement = Operation::create([
+            'riser_id' => $riserId, 'maintenance_case_id' => $case->id, 'group_user_id' => $group->id,
+            'operation_category_id' => $category->id, 'operation_date' => '2026-11-08',
+            'status' => 'draft', 'priority' => 'normal', 'user_id' => $supervisor->id,
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+        OperationMaterial::create([
+            'operation_id' => $operation->id, 'material_id' => DB::table('materials')->insertGetId([
+                'material_category_id' => $materialCategoryId,
+                'title' => 'Soft delete material', 'code' => 'soft-mat-'.uniqid(), 'unit' => 'عدد',
+                'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+            ]), 'qty' => 2, 'price' => 0, 'total' => 0,
+        ]);
+        app(AuditLogger::class)->record('operation.created', $operation, null, ['operation_id' => $operation->id]);
+
+        $this->actingAs($supervisor)->putJson(route('maintenance-cases.operations.update-batch', $case), [
+            'operations' => [[
+                'id' => $replacement->id,
+                'version' => $replacement->updated_at?->toISOString(),
+                'operation_category_id' => $replacement->operation_category_id,
+                'operation_date' => $replacement->operation_date,
+                'materials' => [],
+            ]],
+            'deleted_operation_ids' => [$operation->id],
+        ])->assertOk();
+
+        $this->assertNull(Operation::query()->find($operation->id));
+        $this->assertNotNull(Operation::withTrashed()->findOrFail($operation->id)->deleted_at);
+        $this->assertDatabaseHas('operation_materials', ['operation_id' => $operation->id, 'qty' => 2]);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'operation.soft_deleted', 'operation_id' => $operation->id]);
+        $this->assertDatabaseHas('audit_logs', ['event' => 'operation.created', 'operation_id' => $operation->id]);
+    }
+
+    public function test_web_batch_rejects_duplicate_material_ids_within_one_operation(): void
+    {
+        [$organization, $zone, $group] = $this->scope('duplicate-material');
+        $supervisor = $this->user('duplicate-material-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'DUPLICATE-MATERIAL-'.uniqid());
+        $category = OperationCategory::create(['title' => 'Duplicate material repair', 'code' => 'duplicate-'.uniqid(), 'is_active' => true]);
+        $materialCategoryId = DB::table('material_categories')->insertGetId([
+            'title' => 'Duplicate material category', 'code' => 'duplicate-cat-'.uniqid(), 'is_active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $material = Material::create([
+            'material_category_id' => $materialCategoryId, 'title' => 'Duplicate material',
+            'code' => 'duplicate-mat-'.uniqid(), 'unit' => 'عدد', 'default_price' => 0, 'is_active' => true,
+        ]);
+        $case = MaintenanceCase::create([
+            'riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id,
+            'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now(),
+        ]);
+
+        $this->actingAs($supervisor)->postJson(route('maintenance-cases.operations.store', $case), [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'operations' => [[
+                'operation_category_id' => $category->id,
+                'operation_date' => '2026-11-08',
+                'materials' => [
+                    ['material_id' => $material->id, 'qty' => 1],
+                    ['material_id' => $material->id, 'qty' => 2],
+                ],
+            ]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('operations.0.materials.1.material_id');
+
+        $this->assertSame(0, Operation::query()->where('maintenance_case_id', $case->id)->count());
+    }
+
+    public function test_web_batch_stores_before_and_after_photos_on_their_own_operations(): void
+    {
+        Storage::fake('local');
+        [$organization, $zone, $group] = $this->scope('web-batch-photos');
+        $supervisor = $this->user('web-batch-photos-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'WEB-BATCH-PHOTOS-'.uniqid());
+        $categories = collect(['Photo A', 'Photo B', 'Photo C'])->map(fn ($title) => OperationCategory::create([
+            'title' => $title, 'code' => 'photo-'.uniqid(), 'is_active' => true,
+        ]));
+        $case = MaintenanceCase::create([
+            'riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id,
+            'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now(),
+        ]);
+
+        $payload = [
+            'client_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'photos_before' => UploadedFile::fake()->image('case-before.jpg'),
+            'photos_after' => UploadedFile::fake()->image('case-after.jpg'),
+            'operations' => $categories->values()->map(fn ($category, $index) => [
+                'operation_category_id' => $category->id,
+                'operation_date' => '2026-11-03',
+            ])->all(),
+        ];
+
+        $this->actingAs($supervisor)->post(route('maintenance-cases.operations.store', $case), $payload, [
+            'Accept' => 'application/json',
+        ])->assertCreated();
+
+        $operations = Operation::query()->where('maintenance_case_id', $case->id)->orderBy('id')->get();
+        $this->assertCount(3, $operations);
+        foreach ($operations as $operation) {
+            $this->assertSame(0, $operation->images()->count());
+        }
+        $this->assertSame(2, OperationImage::where('maintenance_case_id', $case->id)->whereNull('operation_id')->count());
+        $this->assertSame(1, OperationImage::where('maintenance_case_id', $case->id)->where('type', 'before')->count());
+        $this->assertSame(1, OperationImage::where('maintenance_case_id', $case->id)->where('type', 'after')->count());
+        OperationImage::where('maintenance_case_id', $case->id)->each(fn ($photo) => Storage::disk('local')->assertExists($photo->path));
+    }
+
+    public function test_case_photos_are_uploaded_from_riser_details_and_replaced_without_touching_operations(): void
+    {
+        Storage::fake('local');
+        [$organization, $zone, $group] = $this->scope('case-photo-endpoint');
+        $supervisor = $this->user('case-photo-endpoint-supervisor', 'supervisor', $organization, $zone, $group);
+        $riserId = $this->riser($zone, 'CASE-PHOTO-ENDPOINT-'.uniqid());
+        $category = OperationCategory::create(['title' => 'Repair', 'code' => 'case-photo-'.uniqid(), 'is_active' => true]);
+        $case = MaintenanceCase::create([
+            'riser_id' => $riserId, 'reported_by' => $supervisor->id, 'assigned_group_id' => $group->id,
+            'status' => MaintenanceCase::STATUS_OPEN, 'priority' => 'normal', 'identified_at' => now(),
+        ]);
+
+        $before = UploadedFile::fake()->image('before-one.jpg');
+        $this->actingAs($supervisor)->post(route('maintenance-cases.photos.store', [$case, 'before']), ['photo' => $before])
+            ->assertOk();
+        $old = OperationImage::where('maintenance_case_id', $case->id)->where('type', 'before')->firstOrFail();
+        Storage::disk('local')->assertExists($old->path);
+
+        Operation::create([
+            'riser_id' => $riserId, 'maintenance_case_id' => $case->id, 'group_user_id' => $group->id,
+            'operation_category_id' => $category->id, 'operation_date' => '2026-11-07', 'status' => 'draft',
+            'priority' => 'normal', 'user_id' => $supervisor->id,
+        ]);
+        $this->actingAs($supervisor)->post(route('maintenance-cases.photos.store', [$case, 'after']), [
+            'photo' => UploadedFile::fake()->image('after-one.jpg'),
+        ])->assertOk();
+
+        $this->actingAs($supervisor)->post(route('maintenance-cases.photos.store', [$case, 'before']), [
+            'photo' => UploadedFile::fake()->image('before-two.jpg'),
+        ])->assertOk();
+        $this->assertSame(1, OperationImage::where('maintenance_case_id', $case->id)->where('type', 'before')->whereNull('operation_id')->count());
+        $this->assertSame(1, OperationImage::where('maintenance_case_id', $case->id)->where('type', 'after')->whereNull('operation_id')->count());
+        Storage::disk('local')->assertMissing($old->path);
+        $this->assertSame(0, Operation::where('maintenance_case_id', $case->id)->firstOrFail()->images()->count());
     }
 
     public function test_mobile_case_supports_multiple_independent_draft_operations_and_idempotent_replay(): void

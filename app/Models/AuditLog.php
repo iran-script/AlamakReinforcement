@@ -25,5 +25,5 @@ class AuditLog extends Model
     public function auditable(): MorphTo { return $this->morphTo(); }
     public function zone(): BelongsTo { return $this->belongsTo(Zone::class); }
     public function riser(): BelongsTo { return $this->belongsTo(Riser::class); }
-    public function operation(): BelongsTo { return $this->belongsTo(Operation::class); }
+    public function operation(): BelongsTo { return $this->belongsTo(Operation::class)->withTrashed(); }
 }

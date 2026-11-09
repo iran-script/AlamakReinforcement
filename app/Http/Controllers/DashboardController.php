@@ -59,7 +59,9 @@ class DashboardController extends Controller
                 $join->whereRaw('ST_Intersects(zone.geom, riser.geom)');
             });
         if (! $request->user()->hasRole('superadmin')) {
-            $zoneQuery->where('zone.id', $request->user()->zone_id);
+            if (! $request->user()->isGlobalMaintenanceViewer()) {
+                $zoneQuery->where('zone.id', $request->user()->zone_id);
+            }
         }
         $zones = $zoneQuery->select('zone.name as label')->selectRaw('COUNT(DISTINCT operations.id) AS aggregate')
             ->groupBy('zone.id', 'zone.name')->orderByDesc('aggregate')->get();
@@ -69,11 +71,14 @@ class DashboardController extends Controller
             ->groupBy('zone.id', 'zone.name')->orderByDesc('aggregate')->get();
         $materialByZone = \Illuminate\Support\Facades\DB::table('operation_materials')
             ->join('operations', 'operations.id', '=', 'operation_materials.operation_id')
+            ->whereNull('operations.deleted_at')
             ->join('riser', 'riser.id', '=', 'operations.riser_id')
             ->join('zone', function ($join) { $join->whereRaw('ST_Intersects(zone.geom, riser.geom)'); })
             ->join('materials', 'materials.id', '=', 'operation_materials.material_id')
             ->whereIn('operations.id', $ids);
-        if (! $request->user()->hasRole('superadmin')) $materialByZone->where('zone.id', $request->user()->zone_id);
+        if (! $request->user()->hasRole('superadmin') && ! $request->user()->isGlobalMaintenanceViewer()) {
+            $materialByZone->where('zone.id', $request->user()->zone_id);
+        }
         $materialByZone = $materialByZone->selectRaw("zone.name || ' — ' || materials.title || ' (' || COALESCE(materials.unit, '') || ')' AS label")
             ->selectRaw('SUM(operation_materials.qty) AS aggregate')
             ->groupBy('zone.id', 'zone.name', 'materials.id', 'materials.title', 'materials.unit')
@@ -175,7 +180,9 @@ class DashboardController extends Controller
 
         $dashboardZones = $user->hasRole('superadmin')
             ? Zone::query()->orderBy('name')->get(['id', 'name'])
-            : Zone::query()->whereKey($user->zone_id)->get(['id', 'name']);
+            : ($user->isGlobalMaintenanceViewer()
+                ? Zone::query()->orderBy('name')->get(['id', 'name'])
+                : Zone::query()->whereKey($user->zone_id)->get(['id', 'name']));
         $dashboardCategories = \App\Models\OperationCategory::query()
             ->whereHas('operations', $visibleOperations)->orderBy('title')->get(['id', 'title']);
         $dashboardStatuses = (clone $operations)->whereNotNull('status')->distinct()->orderBy('status')->pluck('status');
@@ -238,6 +245,26 @@ class DashboardController extends Controller
 
             ->get();
 
+        $maintenanceApprovalStats = null;
+        if ($user->hasRole('boss') && $user->can('operation.approve')) {
+            $approvalCases = \App\Models\MaintenanceCase::query()
+                ->visibleTo($user)
+                ->whereIn('assigned_group_id', $user->managedGroupIds());
+            $maintenanceApprovalStats = [
+                'submitted' => (clone $approvalCases)->where('status', \App\Models\MaintenanceCase::STATUS_SUBMITTED)->count(),
+                'completed' => (clone $approvalCases)->where('status', \App\Models\MaintenanceCase::STATUS_COMPLETED)->count(),
+                'returned' => (clone $approvalCases)->where('status', \App\Models\MaintenanceCase::STATUS_RETURNED)->count(),
+            ];
+        }
+
+        $maintenanceReturnedCount = null;
+        if ($user->hasRole('supervisor') && $user->can('maintenance.case.view') && $user->group_user_id) {
+            $maintenanceReturnedCount = \App\Models\MaintenanceCase::query()
+                ->visibleTo($user)
+                ->where('assigned_group_id', (int) $user->group_user_id)
+                ->where('status', \App\Models\MaintenanceCase::STATUS_RETURNED)
+                ->count();
+        }
 
 
 
@@ -263,7 +290,7 @@ class DashboardController extends Controller
             'latestOperations',
 
             
-            'topMaterials'
+            'topMaterials', 'maintenanceApprovalStats', 'maintenanceReturnedCount'
 
             , 'dashboardZones', 'dashboardCategories', 'dashboardStatuses', 'dashboardUsers', 'dashboardSupervisors', 'dashboardGroups'
 

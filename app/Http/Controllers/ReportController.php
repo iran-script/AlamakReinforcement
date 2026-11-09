@@ -46,20 +46,26 @@ class ReportController extends Controller
 
         $zones = $user->hasRole('superadmin')
             ? Zone::orderBy('name')->get()
-            : Zone::where('id', $user->zone_id)->get();
+            : ($user->isGlobalMaintenanceViewer()
+                ? Zone::orderBy('name')->get()
+                : Zone::where('id', $user->zone_id)->get());
         $groups = $user->hasRole('superadmin')
             ? \App\Models\GroupUser::orderBy('name')->get()
-            : \App\Models\GroupUser::whereIn('id', $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id])->orderBy('name')->get();
+            : ($user->isGlobalMaintenanceViewer()
+                ? \App\Models\GroupUser::orderBy('name')->get()
+                : \App\Models\GroupUser::whereIn('id', $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id])->orderBy('name')->get());
         $supervisors = User::query()->whereHas('roles', fn ($roles) => $roles->where('name', 'supervisor')->where('guard_name', 'web'))
-            ->when(! $user->hasRole('superadmin'), fn ($query) => $query->where('zone_id', $user->zone_id))
-            ->when(! $user->hasRole('superadmin'), fn ($query) => $query->whereIn('group_user_id', $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]))
+            ->when(! $user->hasRole('superadmin') && ! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->where('zone_id', $user->zone_id))
+            ->when($user->isGlobalMaintenanceViewer(), fn ($query) => $query)
+            ->when(! $user->hasRole('superadmin') && ! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->whereIn('group_user_id', $user->hasRole('boss') ? $user->managedGroupIds() : [(int) $user->group_user_id]))
             ->orderBy('name')->get();
 
         return view('report.index', [
 
             'users' => $user->hasRole('superadmin')
                 ? User::orderBy('name')->get()
-                : User::where('zone_id', $user->zone_id)->where('organization_id', $user->organization_id)
+                : User::query()
+                    ->when(! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->where('organization_id', $user->organization_id)->where('zone_id', $user->zone_id))
                     ->when($user->hasRole('boss'), fn ($query) => $query->whereIn('group_user_id', $user->managedGroupIds()))->orderBy('name')->get(),
 
             'materials' => Material::query()->whereHas('operations', $visible)->orderBy('title')->get(),
@@ -136,6 +142,7 @@ class ReportController extends Controller
 
     public function storeSaved(Request $request)
     {
+        abort_unless(! $request->user()->isGlobalMaintenanceViewer(), 403);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'configuration' => ['required', 'array'],
@@ -170,7 +177,11 @@ class ReportController extends Controller
         if (isset($configuration['columns']) && array_diff($configuration['columns'], $allowedColumns)) {
             throw \Illuminate\Validation\ValidationException::withMessages(['configuration.columns' => 'ستون‌ها با نوع گزارش سازگار نیستند.']);
         }
-        if (! $user->hasRole('superadmin') && isset($configuration['zone'])
+        if ($user->isGlobalMaintenanceViewer() && isset($configuration['zone'])
+            && ! Zone::whereKey($configuration['zone'])->exists()) {
+            abort(403, 'Zone خارج از سازمان مجاز است.');
+        }
+        if (! $user->hasRole('superadmin') && ! $user->isGlobalMaintenanceViewer() && isset($configuration['zone'])
             && (int) $configuration['zone'] !== (int) $user->zone_id) {
             abort(403, 'Zone خارج از دسترسی شماست.');
         }
@@ -198,6 +209,7 @@ class ReportController extends Controller
 
     public function destroySaved(Request $request, int $savedReport)
     {
+        abort_unless(! $request->user()->isGlobalMaintenanceViewer(), 403);
         $report = SavedReport::query()->where('user_id', $request->user()->id)->findOrFail($savedReport);
         $report->delete();
 

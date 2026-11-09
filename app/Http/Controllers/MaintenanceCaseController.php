@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\MaintenanceCase;
+use App\Models\AuditLog;
 use App\Models\Material;
 use App\Models\Operation;
 use App\Models\OperationImage;
@@ -11,6 +12,7 @@ use App\Models\OperationSupervisor;
 use App\Models\OperationCategory;
 use App\Models\Riser;
 use App\Models\User;
+use App\Models\GroupUser;
 use App\Models\WorkflowTransfer;
 use App\Services\AuditLogger;
 use App\Services\WorkflowService;
@@ -21,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use Throwable;
 
 class MaintenanceCaseController extends Controller
 {
@@ -30,19 +33,82 @@ class MaintenanceCaseController extends Controller
     {
         $this->authorizeFieldOrManager($request->user());
         $user = $request->user();
-        $visibleGroupIds = $user->isSuperAdmin() ? null : ($user->hasRole('boss') ? $user->managedGroupIds() : array_filter([(int) $user->group_user_id]));
-        abort_unless($user->isSuperAdmin() || ($visibleGroupIds !== [] && $user->zone_id), 403);
-        $cases = MaintenanceCase::query()->visibleTo($user)
-            ->when(! $user->isSuperAdmin(), fn ($query) => $query->whereIn('assigned_group_id', $visibleGroupIds))
-            ->with(['riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'operationCategory:id,title', 'operations:id,maintenance_case_id,status,operation_date,operation_category_id', 'operations.operationMaterial'])
-            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
-            ->when($user->isSuperAdmin() && $request->filled('group'), fn ($query) => $query->where('assigned_group_id', $request->integer('group')))
-            ->when($request->filled('supervisor'), fn ($query) => $query->where('reported_by', $request->integer('supervisor')))
-            ->latest('identified_at')->paginate(25)->withQueryString();
+        $visibleGroupIds = $user->isSuperAdmin() || $user->isGlobalMaintenanceViewer()
+            ? null : ($user->hasRole('boss') ? $user->managedGroupIds() : array_filter([(int) $user->group_user_id]));
+        abort_unless($user->isSuperAdmin() || $user->isGlobalMaintenanceViewer()
+            || ($visibleGroupIds !== [] && $user->zone_id), 403);
+
+        $allowedStatuses = [
+            MaintenanceCase::STATUS_OPEN,
+            MaintenanceCase::STATUS_IN_PROGRESS,
+            MaintenanceCase::STATUS_SUBMITTED,
+            MaintenanceCase::STATUS_RETURNED,
+            MaintenanceCase::STATUS_COMPLETED,
+        ];
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', Rule::in($allowedStatuses)],
+            'group' => ['nullable', 'integer', 'min:1'],
+            'organization' => ['nullable', 'integer', 'exists:organizations,id'],
+            'zone' => ['nullable', 'integer', 'exists:zone,id'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        $baseQuery = fn () => MaintenanceCase::query()
+            ->visibleTo($user)
+            ->when(! $user->isSuperAdmin() && ! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->whereIn('assigned_group_id', $visibleGroupIds));
+
+        $groupFilterAllowed = ! isset($filters['group'])
+            || $user->isSuperAdmin() || $user->isGlobalMaintenanceViewer()
+            || in_array((int) $filters['group'], $visibleGroupIds ?? [], true);
+
+        $casesQuery = $baseQuery()
+            ->when(! $groupFilterAllowed, fn ($query) => $query->whereRaw('1 = 0'))
+            ->when(isset($filters['group']), fn ($query) => $query->where('assigned_group_id', (int) $filters['group']))
+            ->when(isset($filters['organization']), fn ($query) => $query->whereHas('riser', fn ($riser) => $riser->whereExists(function ($zone) use ($filters): void {
+                $zone->selectRaw('1')->from('zone')->where('zone.organization_id', (int) $filters['organization'])
+                    ->whereRaw('zone.geom IS NOT NULL AND riser.geom IS NOT NULL')
+                    ->whereRaw('ST_Intersects(zone.geom, riser.geom)');
+            })))
+            ->when(isset($filters['zone']), fn ($query) => $query->whereHas('riser', fn ($riser) => $riser->whereExists(function ($zone) use ($filters): void {
+                $zone->selectRaw('1')->from('zone')->whereKey((int) $filters['zone'])
+                    ->whereRaw('zone.geom IS NOT NULL AND riser.geom IS NOT NULL')
+                    ->whereRaw('ST_Intersects(zone.geom, riser.geom)');
+            })))
+            ->when(isset($filters['status']), fn ($query) => $query->where('status', $filters['status']))
+            ->when(isset($filters['from']), fn ($query) => $query->whereDate('identified_at', '>=', $filters['from']))
+            ->when(isset($filters['to']), fn ($query) => $query->whereDate('identified_at', '<=', $filters['to']))
+            ->when(isset($filters['q']) && trim($filters['q']) !== '', function ($query) use ($filters) {
+                $term = trim($filters['q']);
+                $query->where(function ($nested) use ($term) {
+                    $nested->where('maintenance_cases.id', is_numeric($term) ? (int) $term : -1)
+                        ->orWhereHas('riser', fn ($riser) => $riser
+                            ->where('r_giscode', 'ilike', "%{$term}%")
+                            ->orWhere('giscode', 'ilike', "%{$term}%"));
+                });
+            })
+            ->with([
+                'riser:id,r_giscode,giscode',
+                'reporter:id,name',
+                'assignedGroup:id,name',
+            ])
+            ->withCount('operations')
+            ->latest('identified_at');
+
+        $cases = $casesQuery->paginate(25)->withQueryString();
+        $statusCounts = collect($allowedStatuses)->mapWithKeys(fn (string $status) => [
+            $status => (clone $baseQuery())->where('status', $status)->count(),
+        ]);
+        $groups = GroupUser::query()
+            ->when(! $user->isSuperAdmin() && ! $user->isGlobalMaintenanceViewer(), fn ($query) => $query->whereIn('id', $visibleGroupIds))
+            ->orderBy('name')->get(['id', 'name']);
+        $organizations = \App\Models\Organization::query()->orderBy('name')->get(['id', 'name']);
+        $zones = \App\Models\Zone::query()->with('organization:id,name')->orderBy('name')->get(['id', 'name', 'organization_id']);
 
         return $request->expectsJson()
             ? response()->json($cases)
-            : view('maintenance-cases.index', compact('cases'));
+            : view('maintenance-cases.index', compact('cases', 'statusCounts', 'groups', 'organizations', 'zones', 'filters'));
     }
 
     public function store(Request $request)
@@ -67,6 +133,10 @@ class MaintenanceCaseController extends Controller
             'photos_before' => ['nullable', 'array', 'max:20'],
             'photos_before.*' => ['image', 'max:10240'],
         ]);
+        $markingPhotos = $request->file('photos_before', []);
+        if (! $isMobile && (is_array($markingPhotos) ? count($markingPhotos) : ($markingPhotos ? 1 : 0)) > 1) {
+            abort(422, 'برای نشانه‌گذاری فقط یک تصویر قبل از تعمیرات مجاز است.');
+        }
         $riser = Riser::query()->visibleTo($actor)->findOrFail($data['riser_id']);
         $openStatuses = [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED];
         $existingOpenCase = MaintenanceCase::query()->where('riser_id', $riser->id)
@@ -136,6 +206,66 @@ class MaintenanceCaseController extends Controller
             'lastEditor:id,name', 'operation.operationCategory', 'operation.operationMaterial', 'operation.images',
             'operations.operationCategory', 'operations.operationMaterial', 'operations.images', 'operations.user:id,name', 'operations.supervisors:id,name',
         ]);
+        if (! $request->expectsJson() && ! $request->is('api/*')) {
+            $operationIds = $case->operations->modelKeys();
+            $auditLogs = AuditLog::query()
+                ->with('actor:id,name')
+                ->where(function ($query) use ($case, $operationIds): void {
+                    $query->where(function ($caseQuery) use ($case): void {
+                        $caseQuery->where('auditable_type', MaintenanceCase::class)->where('auditable_id', $case->id);
+                    })->orWhereIn('operation_id', $operationIds);
+                })
+                ->latest('created_at')->latest('id')->limit(120)->get();
+            $workflowTransfers = WorkflowTransfer::query()
+                ->with(['fromUser:id,name', 'toUser:id,name', 'operation:id,operation_category_id'])
+                ->where('riser_id', $case->riser_id)
+                ->where(function ($query) use ($operationIds): void {
+                    $query->whereIn('operation_id', $operationIds)->orWhereNull('operation_id');
+                })
+                ->latest('send_date')->latest('id')->limit(80)->get();
+            $timeline = collect()
+                ->merge($auditLogs->map(fn (AuditLog $log): array => [
+                    'kind' => 'audit',
+                    'at' => $log->created_at,
+                    'title' => $log->event,
+                    'actor' => $log->actor?->name,
+                    'detail' => $log->metadata,
+                ]))
+                ->merge($workflowTransfers->map(fn (WorkflowTransfer $transfer): array => [
+                    'kind' => 'workflow',
+                    'at' => $transfer->send_date,
+                    'title' => $transfer->title ?: $transfer->type,
+                    'actor' => $transfer->fromUser?->name,
+                    'detail' => $transfer->comment,
+                ]))
+                ->sortByDesc(fn (array $item) => $item['at']?->timestamp ?? 0)
+                ->values();
+            $materialsSummary = $case->operations->flatMap->operationMaterial
+                ->groupBy('id')
+                ->map(fn ($items): array => [
+                    'id' => (int) $items->first()->id,
+                    'title' => $items->first()->title,
+                    'unit' => $items->first()->unit,
+                    'qty' => $items->sum(fn ($material): float => (float) $material->pivot->qty),
+                    'operations' => $items->map(fn ($material): int => (int) $material->pivot->operation_id)->unique()->values()->all(),
+                ])->values();
+            $actor = $request->user();
+            $canEditOperations = $actor->hasRole('supervisor')
+                && (int) $case->assigned_group_id === (int) $actor->group_user_id
+                && $case->canAcceptOperations();
+            $canSubmitOperations = $canEditOperations && $case->operations->isNotEmpty();
+            $canReview = $actor->hasRole('boss') && $actor->can('operation.approve')
+                && $actor->managesGroup((int) $case->assigned_group_id)
+                && $case->status === MaintenanceCase::STATUS_SUBMITTED;
+            $canEditPhotos = $actor->isSuperAdmin()
+                || ($actor->hasRole('boss') && $actor->can('operation.edit') && $actor->managesGroup((int) $case->assigned_group_id))
+                || ($actor->hasRole('supervisor') && (int) $actor->group_user_id === (int) $case->assigned_group_id && $case->canAcceptOperations());
+
+            return view('maintenance-cases.show', compact(
+                'case', 'auditLogs', 'workflowTransfers', 'timeline', 'materialsSummary',
+                'canEditOperations', 'canSubmitOperations', 'canReview', 'canEditPhotos'
+            ));
+        }
         $casePhotos = $case->photos->merge($case->operations->flatMap->images)->unique('id')->values();
         $casePhotos->each(function (OperationImage $photo) use ($request): void {
             $photo->makeHidden(['path', 'original_name']);
@@ -224,9 +354,9 @@ class MaintenanceCaseController extends Controller
             'operations.*.materials' => ['nullable', 'array', 'max:100'],
             'operations.*.materials.*.material_id' => ['required', 'integer', 'distinct'],
             'operations.*.materials.*.qty' => ['required', 'numeric', 'gt:0', 'max:99999999.99'],
-            'operations.*.photos_after' => ['nullable', 'array', 'max:20'],
-            'operations.*.photos_after.*' => ['image', 'max:10240'],
-        ]);
+            'photos_before' => ['nullable', 'image', 'max:10240'],
+            'photos_after' => ['nullable', 'image', 'max:10240'],
+        ], $this->batchValidationMessages());
 
         $categoryIds = collect($data['operations'])->pluck('operation_category_id')->map(fn ($id) => (int) $id)->unique()->values();
         abort_unless(OperationCategory::query()->where('is_active', true)->whereIn('id', $categoryIds)->count() === $categoryIds->count(), 422, 'یکی از انواع عملیات انتخاب‌شده فعال نیست.');
@@ -256,7 +386,10 @@ class MaintenanceCaseController extends Controller
             }
         }
 
-        $created = DB::transaction(function () use ($data, $request, $actor, $maintenanceCase, $supportsIdempotency): array {
+        $storedPhotoPaths = [];
+        $replacedPhotoPaths = [];
+        try {
+            $created = DB::transaction(function () use ($data, $request, $actor, $maintenanceCase, $supportsIdempotency, &$storedPhotoPaths, &$replacedPhotoPaths): array {
             $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
             abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
             abort_unless($case->canAcceptOperations(), 409, $this->operationEntryStatusMessage($case));
@@ -286,16 +419,54 @@ class MaintenanceCaseController extends Controller
                 $this->replaceOperationMaterialsFromList($operation, $operationData['materials'] ?? []);
                 $this->audit->record('operation.created', $operation, null, $this->audit->attributesFor($operation));
                 $this->audit->record('operation.materials_updated', $operation, null, ['materials' => $this->materialSnapshot($operation)]);
-                foreach ($request->file('operations.'.$operationIndex.'.photos_after', []) as $file) {
-                    $photo = $this->storePhoto($file, $actor, $case->riser, $case, $operation, 'after');
-                    $this->audit->record('operation.photo_added', $photo, null, ['photo_id' => $photo->id, 'operation_id' => $operation->id]);
-                }
                 $operations[] = $operation->load(['operationCategory', 'operationMaterial', 'images']);
+            }
+
+            foreach (['before', 'after'] as $photoType) {
+                $file = $request->file('photos_'.$photoType);
+                if (! $file) {
+                    continue;
+                }
+
+                $existingPhoto = $case->photos()->whereNull('operation_id')->where('type', $photoType)->orderBy('id')->first();
+                if ($existingPhoto && $this->sameStoredPhoto($file, $existingPhoto)) {
+                    continue;
+                }
+
+                $path = $file->store('maintenance-case-photos', 'local');
+                $storedPhotoPaths[] = $path;
+                if ($existingPhoto) {
+                    $replacedPhotoPaths[] = $existingPhoto->path;
+                    $existingPhoto->update(['path' => $path, 'original_name' => $file->getClientOriginalName(), 'uploaded_by' => $actor->id]);
+                    $photo = $existingPhoto->refresh();
+                } else {
+                    $photo = OperationImage::query()->create([
+                        'operation_id' => null,
+                        'maintenance_case_id' => $case->id,
+                        'riser_id' => $case->riser_id,
+                        'type' => $photoType,
+                        'path' => $path,
+                        'original_name' => $file->getClientOriginalName(),
+                        'uploaded_by' => $actor->id,
+                    ]);
+                }
+                $this->audit->record('maintenance_case.photo_added', $photo, null, [
+                    'photo_id' => $photo->id, 'type' => $photoType, 'maintenance_case_id' => $case->id,
+                ]);
             }
             $case->update(['status' => MaintenanceCase::STATUS_IN_PROGRESS, 'last_edited_by' => $actor->id]);
             $this->audit->record('maintenance_case.operations_batch_created', $case, $beforeCase, $this->audit->attributesFor($case), ['operation_ids' => array_map(fn (Operation $operation) => $operation->getKey(), $operations)]);
             return $operations;
-        });
+            });
+        } catch (Throwable $exception) {
+            foreach ($storedPhotoPaths as $path) {
+                Storage::disk('local')->delete($path);
+            }
+            throw $exception;
+        }
+        foreach ($replacedPhotoPaths as $path) {
+            Storage::disk('local')->delete($path);
+        }
 
         $message = count($created).' عملیات تعمیراتی با موفقیت ثبت شد.';
         if (! $request->expectsJson()) {
@@ -321,6 +492,71 @@ class MaintenanceCaseController extends Controller
         abort_unless(Storage::disk('local')->exists($operationPhoto->path), 404);
 
         return response()->file(Storage::disk('local')->path($operationPhoto->path));
+    }
+
+    public function storeCasePhoto(Request $request, MaintenanceCase $maintenanceCase, string $type)
+    {
+        abort_unless(in_array($type, ['before', 'after'], true), 404);
+        $actor = $request->user();
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        $this->authorizeCasePhotoChange($actor, $maintenanceCase);
+        if ($type === 'after') {
+            abort_unless($maintenanceCase->operations()->exists(), 422, 'ابتدا حداقل یک عملیات تعمیراتی ثبت کنید.');
+        }
+
+        $data = $request->validate(['photo' => ['required', 'image', 'max:10240']]);
+        $newPath = $data['photo']->store('maintenance-case-photos', 'local');
+        $oldPath = null;
+        $photo = null;
+
+        try {
+            DB::transaction(function () use ($maintenanceCase, $type, $data, $newPath, &$oldPath, &$photo): void {
+                $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+                $existing = $case->photos()->whereNull('operation_id')->where('type', $type)->orderBy('id')->first();
+                if ($existing && $this->sameStoredPhoto($data['photo'], $existing)) {
+                    Storage::disk('local')->delete($newPath);
+                    $photo = $existing;
+                    return;
+                }
+
+                if ($existing) {
+                    $oldPath = $existing->path;
+                    $existing->update([
+                        'path' => $newPath,
+                        'original_name' => $data['photo']->getClientOriginalName(),
+                        'uploaded_by' => auth()->id(),
+                    ]);
+                    $photo = $existing->refresh();
+                    return;
+                }
+
+                $photo = OperationImage::query()->create([
+                    'operation_id' => null,
+                    'maintenance_case_id' => $case->id,
+                    'riser_id' => $case->riser_id,
+                    'type' => $type,
+                    'path' => $newPath,
+                    'original_name' => $data['photo']->getClientOriginalName(),
+                    'uploaded_by' => auth()->id(),
+                ]);
+            });
+        } catch (Throwable $exception) {
+            Storage::disk('local')->delete($newPath);
+            throw $exception;
+        }
+
+        if ($oldPath) {
+            Storage::disk('local')->delete($oldPath);
+        }
+
+        return response()->json([
+            'success' => true,
+            'photo' => [
+                'id' => $photo->id,
+                'type' => $photo->type,
+                'url' => route('maintenance-cases.photos.show', $photo),
+            ],
+        ]);
     }
 
     public function complete(Request $request, MaintenanceCase $maintenanceCase)
@@ -499,6 +735,146 @@ class MaintenanceCaseController extends Controller
         return response()->json(['operation' => $operation], 201);
     }
 
+    /** Render the tablet-first grouped editor for an existing maintenance case. */
+    public function editOperations(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+        abort_unless($maintenanceCase->canAcceptOperations(), 409, $this->operationEntryStatusMessage($maintenanceCase));
+
+        $maintenanceCase->load(['riser', 'operations.operationCategory', 'operations.operationMaterial']);
+
+        return view('maintenance-cases.operations-create', [
+            'maintenanceCase' => $maintenanceCase,
+            'editing' => true,
+            'operationCategories' => OperationCategory::query()->where('is_active', true)->orderBy('sort')->orderBy('title')->get(['id', 'title', 'code']),
+            'materialsPayload' => Material::query()->with('category:id,title')->where('is_active', true)->orderBy('title')->get(['id', 'material_category_id', 'title', 'code', 'unit'])->map(fn (Material $material): array => [
+                'id' => (int) $material->id,
+                'category_id' => $material->material_category_id ? (int) $material->material_category_id : null,
+                'category_title' => $material->category?->title,
+                'title' => $material->title,
+                'code' => $material->code,
+                'unit' => $material->unit,
+            ])->values()->all(),
+            'operationsPayload' => $maintenanceCase->operations->map(fn (Operation $operation): array => [
+                'id' => (int) $operation->id,
+                'version' => $operation->updated_at?->toISOString(),
+                'operation_category_id' => (int) $operation->operation_category_id,
+                'operation_date' => $operation->operation_date,
+                'description' => $operation->description,
+                'status' => $operation->status,
+                'materials' => $operation->operationMaterial->mapWithKeys(fn (Material $material): array => [(string) $material->id => (float) $material->pivot->qty])->all(),
+            ])->values()->all(),
+        ]);
+    }
+
+    /** Update all draft/revision operations belonging to a maintenance case atomically. */
+    public function updateOperations(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        $this->authorizeFieldEntry($actor);
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
+        abort_unless($maintenanceCase->canAcceptOperations(), 409, $this->operationEntryStatusMessage($maintenanceCase));
+
+        $data = $request->validate([
+            'operations' => ['required', 'array', 'max:50'],
+            'operations.*.id' => ['nullable', 'integer', 'distinct'],
+            'operations.*.client_uuid' => ['nullable', 'uuid', 'distinct'],
+            'operations.*.operation_category_id' => ['required', 'integer', 'exists:operation_categories,id'],
+            'operations.*.operation_date' => ['required', 'date'],
+            'operations.*.description' => ['nullable', 'string', 'max:10000'],
+            'operations.*.version' => ['nullable', 'date'],
+            'operations.*.materials' => ['nullable', 'array', 'max:100'],
+            'operations.*.materials.*.material_id' => ['required', 'integer', 'distinct'],
+            'operations.*.materials.*.qty' => ['required', 'numeric', 'gt:0', 'max:99999999.99'],
+            'deleted_operation_ids' => ['nullable', 'array', 'max:50'],
+            'deleted_operation_ids.*' => ['integer', 'distinct'],
+        ], $this->batchValidationMessages());
+
+        $categoryIds = collect($data['operations'])->pluck('operation_category_id')->map(fn ($id) => (int) $id)->unique();
+        abort_unless(OperationCategory::query()->where('is_active', true)->whereIn('id', $categoryIds)->count() === $categoryIds->count(), 422, 'یکی از انواع عملیات انتخاب‌شده فعال نیست.');
+        $materialIds = collect($data['operations'])->flatMap(fn ($operation) => collect($operation['materials'] ?? [])->pluck('material_id'))->map(fn ($id) => (int) $id)->unique();
+        abort_unless(Material::query()->where('is_active', true)->whereIn('id', $materialIds)->count() === $materialIds->count(), 422, 'یکی از مصالح انتخاب‌شده معتبر یا فعال نیست.');
+
+        $updatedCase = DB::transaction(function () use ($data, $actor, $maintenanceCase): MaintenanceCase {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
+            abort_unless($case->canAcceptOperations(), 409, $this->operationEntryStatusMessage($case));
+            $allowedStatuses = ['draft', 'need_revision'];
+            $existing = $case->operations()->lockForUpdate()->get()->keyBy('id');
+            $submittedIds = collect($data['operations'])->pluck('id')->filter()->map(fn ($id) => (int) $id);
+            $deletedIds = collect($data['deleted_operation_ids'] ?? [])->map(fn ($id) => (int) $id);
+            abort_if($submittedIds->intersect($deletedIds)->isNotEmpty(), 422, 'یک عملیات نمی‌تواند هم‌زمان ویرایش و حذف شود.');
+
+            foreach ($submittedIds->merge($deletedIds)->unique() as $operationId) {
+                $operation = $existing->get($operationId);
+                abort_unless($operation && in_array($operation->status, $allowedStatuses, true), 409, 'یکی از عملیات قابل ویرایش نیست.');
+                if ($deletedIds->contains($operationId)) {
+                    abort_unless(! $operation->images()->exists() && ! $operation->workflowTransfers()->exists(), 409, 'عملیاتی که عکس یا سابقه گردش‌کار دارد قابل حذف نیست.');
+                }
+            }
+
+            foreach ($deletedIds as $operationId) {
+                $operation = $existing->get($operationId);
+                $before = $this->audit->attributesFor($operation);
+                $operation->delete();
+                $this->audit->record('operation.soft_deleted', $operation, $before, [
+                    'deleted_at' => $operation->deleted_at?->toISOString(),
+                ], [
+                    'deletion_mode' => 'soft_delete',
+                    'maintenance_case_id' => $case->id,
+                ]);
+            }
+
+            foreach ($data['operations'] as $payload) {
+                $operation = ! empty($payload['id']) ? $existing->get((int) $payload['id']) : null;
+                if (! $operation && empty($payload['id']) && ! empty($payload['client_uuid'])) {
+                    $operation = $existing->first(fn (Operation $candidate): bool => $candidate->client_uuid === $payload['client_uuid']);
+                    if ($operation) {
+                        // A retry after a lost response is idempotent for newly-created
+                        // operations. Do not rewrite it or create a duplicate row.
+                        continue;
+                    }
+                }
+                if ($operation) {
+                    abort_unless(in_array($operation->status, $allowedStatuses, true), 409, 'یکی از عملیات قابل ویرایش نیست.');
+                    $before = $this->audit->attributesFor($operation);
+                    if (! empty($payload['version']) && $operation->updated_at?->toISOString() !== \Illuminate\Support\Carbon::parse($payload['version'])->toISOString()) {
+                        abort(409, 'اطلاعات یکی از عملیات در جای دیگری تغییر کرده است؛ صفحه را تازه‌سازی کنید.');
+                    }
+                    $operation->fill(collect($payload)->only(['operation_category_id', 'operation_date', 'description'])->all());
+                    $operation->save();
+                    $this->audit->record('operation.updated', $operation, $before, $this->audit->attributesFor($operation));
+                } else {
+                    $operation = Operation::query()->create([
+                        'riser_id' => $case->riser_id,
+                        'maintenance_case_id' => $case->id,
+                        'group_user_id' => $case->assigned_group_id,
+                        'operation_category_id' => $payload['operation_category_id'],
+                        'operation_date' => $payload['operation_date'],
+                        'status' => 'draft',
+                        'priority' => $case->priority,
+                        'description' => $payload['description'] ?? null,
+                        'user_id' => $actor->id,
+                        'contract_id' => $actor->contract_id,
+                        'client_uuid' => $payload['client_uuid'] ?? (string) Str::uuid(),
+                    ]);
+                    $this->audit->record('operation.created', $operation, null, $this->audit->attributesFor($operation));
+                }
+                $this->replaceOperationMaterials($operation, collect($payload['materials'] ?? [])->mapWithKeys(fn ($material) => [(string) $material['material_id'] => $material['qty']])->all());
+                $this->audit->record('operation.materials_updated', $operation, null, ['materials' => $this->materialSnapshot($operation)]);
+            }
+
+            $case->update(['last_edited_by' => $actor->id]);
+            return $case->fresh()->load('operations.operationMaterial');
+        });
+
+        return response()->json(['success' => true, 'case' => $updatedCase, 'redirect_url' => route('riser.show', ['id' => $updatedCase->riser_id])]);
+    }
+
     /** Edit an unsubmitted operation using an updated_at concurrency token. */
     public function updateOperation(Request $request, MaintenanceCase $maintenanceCase, Operation $operation)
     {
@@ -560,18 +936,15 @@ class MaintenanceCaseController extends Controller
         $this->authorizeFieldEntry($actor);
         $this->authorizeCaseView($actor, $maintenanceCase);
         abort_unless((int) $maintenanceCase->assigned_group_id === (int) $actor->group_user_id, 403);
-        $boss = User::query()->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))
-            ->whereHas('managedGroups', fn ($groups) => $groups->whereKey($maintenanceCase->assigned_group_id)
-                ->where('group_users.organization_id', $actor->organization_id)->where('group_users.zone_id', $actor->zone_id))
-            ->where('zone_id', $actor->zone_id)->where('organization_id', $actor->organization_id)->orderBy('id')->first();
-        abort_unless($boss, 422, 'No authorized area reviewer is assigned.');
+        $boss = $this->resolveReviewBoss($actor, $maintenanceCase);
+        abort_unless($boss, 422, 'برای گروه این پرونده، رئیس مجاز همان سازمان و Zone تعریف نشده است. تنظیم Boss گروه را بررسی کنید.');
 
         $case = DB::transaction(function () use ($actor, $boss, $maintenanceCase): MaintenanceCase {
             $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
             abort_unless((int) $case->assigned_group_id === (int) $actor->group_user_id, 403);
-            abort_unless(in_array($case->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409);
+            abort_unless(in_array($case->status, [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_RETURNED], true), 409, 'این پرونده در وضعیت فعلی قابل ارسال نیست.');
             $operations = $case->operations()->lockForUpdate()->whereIn('status', ['draft', 'need_revision'])->get();
-            abort_if($operations->isEmpty(), 422, 'Add or revise at least one operation before submitting.');
+            abort_if($operations->isEmpty(), 422, 'برای ارسال، حداقل یک عملیات در وضعیت پیش‌نویس یا نیازمند اصلاح لازم است.');
             foreach ($operations as $operation) {
                 $operation->update(['status' => 'submitOperation']);
                 OperationSupervisor::query()->updateOrCreate(['operation_id' => $operation->id, 'user_id' => $boss->id], [
@@ -660,6 +1033,92 @@ class MaintenanceCaseController extends Controller
         return response()->json(['success' => true, 'status' => $maintenanceCase->fresh()->status]);
     }
 
+    /** Final case-level decision used by the authorized Boss review queue. */
+    public function finalReview(Request $request, MaintenanceCase $maintenanceCase)
+    {
+        $actor = $request->user();
+        abort_unless($actor->hasRole('boss') && $actor->can('operation.approve'), 403, 'دسترسی تأیید نهایی تعمیرات برای شما مجاز نیست.');
+        $this->authorizeCaseView($actor, $maintenanceCase);
+        abort_unless($actor->managesGroup((int) $maintenanceCase->assigned_group_id), 403, 'این پرونده خارج از گروه‌های مدیریتی شماست.');
+        $data = $request->validate([
+            'decision' => ['required', Rule::in(['approved', 'returned'])],
+            'comment' => ['nullable', 'required_if:decision,returned', 'string', 'max:5000'],
+        ], [
+            'decision.required' => 'تصمیم تأیید پرونده الزامی است.',
+            'comment.required_if' => 'برای برگشت پرونده، دلیل الزامی است.',
+            'comment.max' => 'دلیل برگشت نمی‌تواند بیشتر از ۵۰۰۰ کاراکتر باشد.',
+        ]);
+
+        $case = DB::transaction(function () use ($actor, $data, $maintenanceCase): MaintenanceCase {
+            $case = MaintenanceCase::query()->lockForUpdate()->findOrFail($maintenanceCase->id);
+            abort_unless($actor->managesGroup((int) $case->assigned_group_id), 403);
+            abort_unless($case->status === MaintenanceCase::STATUS_SUBMITTED, 409, 'این پرونده دیگر در انتظار تأیید نیست.');
+            $operations = $case->operations()->lockForUpdate()->get();
+            abort_if($operations->isEmpty(), 422, 'پرونده بدون عملیات معتبر قابل تأیید نیست.');
+            abort_if($operations->contains(fn (Operation $operation): bool => ! in_array($operation->status, ['submitOperation', 'approved'], true)), 409, 'همه عملیات پرونده در وضعیت قابل تأیید نیستند.');
+            abort_if($case->photos()->whereNull('operation_id')->whereIn('type', ['before', 'after'])->get()->groupBy('type')->contains(fn ($photos): bool => $photos->count() > 1), 409, 'تعداد تصاویر سطح پرونده معتبر نیست.');
+
+            $approved = $data['decision'] === 'approved';
+            foreach ($operations as $operation) {
+                $pivot = OperationSupervisor::query()
+                    ->where('operation_id', $operation->id)
+                    ->where('user_id', $actor->id)
+                    ->lockForUpdate()->first();
+                abort_unless($pivot, 409, 'مسیر تأیید این عملیات برای رئیس جاری ثبت نشده است.');
+                $pivot->update([
+                    'status' => $approved ? 'approved' : 'need_revision',
+                    'comment' => $data['comment'] ?? null,
+                    'approved_at' => $approved ? now() : null,
+                ]);
+                $operation->update(['status' => $approved ? 'approved' : 'need_revision']);
+                WorkflowTransfer::query()
+                    ->where('operation_id', $operation->id)
+                    ->where('user_id_to', $actor->id)
+                    ->where('type', WorkflowTransfer::TYPE_OPERATION_REVIEW_REQUEST)
+                    ->whereNull('receive_date')
+                    ->update(['receive_date' => now()]);
+
+                if (! $approved) {
+                    WorkflowTransfer::query()->create([
+                        'user_id_from' => $actor->id,
+                        'user_id_to' => $operation->user_id ?: $actor->id,
+                        'riser_id' => $operation->riser_id,
+                        'operation_id' => $operation->id,
+                        'type' => WorkflowTransfer::TYPE_OPERATION_REVIEW_RETURNED,
+                        'title' => 'Field repair report returned for correction',
+                        'comment' => $data['comment'],
+                        'send_date' => now(),
+                    ]);
+                }
+            }
+
+            $before = $this->audit->attributesFor($case);
+            $case->update([
+                'status' => $approved ? MaintenanceCase::STATUS_COMPLETED : MaintenanceCase::STATUS_RETURNED,
+                'closed_at' => $approved ? now() : null,
+                'last_edited_by' => $actor->id,
+            ]);
+            Riser::query()->whereKey($case->riser_id)->update([
+                'status' => $approved ? 'submitOperation' : 'flagRiser',
+            ]);
+            $this->audit->record(
+                $approved ? 'maintenance_case.final_approved' : 'maintenance_case.returned_for_correction',
+                $case,
+                $before,
+                $this->audit->attributesFor($case),
+                ['operation_ids' => $operations->modelKeys(), 'comment' => $data['comment'] ?? null]
+            );
+
+            return $case;
+        });
+
+        if (! $request->expectsJson()) {
+            return redirect()->route('boss.maintenance-cases.index')->with('success', $data['decision'] === 'approved' ? 'تعمیرات با موفقیت تأیید نهایی شد.' : 'پرونده برای اصلاح برگشت داده شد.');
+        }
+
+        return response()->json(['success' => true, 'status' => $case->status]);
+    }
+
     public function update(Request $request, MaintenanceCase $maintenanceCase)
     {
         $actor = $request->user();
@@ -746,6 +1205,35 @@ class MaintenanceCaseController extends Controller
         abort_unless(! $user->isSuperAdmin() && $user->hasRole('supervisor'), 403);
     }
 
+    private function resolveReviewBoss(User $actor, MaintenanceCase $case): ?User
+    {
+        $group = GroupUser::query()
+            ->whereKey($case->assigned_group_id)
+            ->where('organization_id', $actor->organization_id)
+            ->where('zone_id', $actor->zone_id)
+            ->first();
+        if (! $group) {
+            return null;
+        }
+
+        return User::query()
+            ->where('organization_id', $actor->organization_id)
+            ->where('zone_id', $actor->zone_id)
+            ->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))
+            ->where(function ($permissions): void {
+                $permissions->whereHas('permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'))
+                    ->orWhereHas('roles.permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'));
+            })
+            ->where(function ($groups) use ($group): void {
+                $groups->whereHas('managedGroups', fn ($managed) => $managed->whereKey($group->id))
+                    // Compatibility for a scoped Boss who belongs to a group
+                    // created after the managed-group pivot was backfilled.
+                    ->orWhere('group_user_id', $group->id);
+            })
+            ->orderBy('id')
+            ->first();
+    }
+
     /**
      * Versioned mobile writes must never silently fall back to non-idempotent
      * inserts. Legacy web/API paths remain available while the additive
@@ -761,19 +1249,38 @@ class MaintenanceCaseController extends Controller
     private function authorizeFieldOrManager(User $user): void
     {
         abort_unless($user->isSuperAdmin() || $user->hasRole('supervisor') || $user->hasRole('boss')
-            || $user->can('maintenance.case.view'), 403);
+            || $user->can('maintenance.case.view') || $user->isGlobalMaintenanceViewer(), 403);
     }
 
     private function authorizeCaseView(User $user, MaintenanceCase $case): void
     {
         abort_unless(Riser::query()->visibleTo($user)->whereKey($case->riser_id)->exists(), 404);
         if ($user->isSuperAdmin()) return;
+        if ($user->isGlobalMaintenanceViewer()) {
+            abort_unless($user->can('maintenance.case.view'), 403);
+            return;
+        }
         if ($user->hasRole('boss')) {
             abort_unless($user->can('operation.view') && $user->managesGroup((int) $case->assigned_group_id), 403);
             return;
         }
         abort_unless($user->hasRole('supervisor') || $user->can('maintenance.case.view'), 403);
         abort_unless((int) $user->group_user_id === (int) $case->assigned_group_id, 403);
+    }
+
+    private function authorizeCasePhotoChange(User $user, MaintenanceCase $case): void
+    {
+        if ($user->isSuperAdmin()) {
+            return;
+        }
+
+        if ($user->hasRole('boss')) {
+            abort_unless($user->can('operation.edit') && $user->managesGroup((int) $case->assigned_group_id), 403);
+            return;
+        }
+
+        abort_unless($user->hasRole('supervisor') && (int) $user->group_user_id === (int) $case->assigned_group_id, 403);
+        abort_unless(in_array($case->status, MaintenanceCase::OPERATION_ENTRY_STATUSES, true), 403, 'تصاویر این پرونده در وضعیت فعلی قابل تغییر نیستند.');
     }
 
     private function storePhoto($file, User $actor, Riser $riser, MaintenanceCase $case, ?Operation $operation, string $type): OperationImage
@@ -787,6 +1294,15 @@ class MaintenanceCaseController extends Controller
             'original_name' => $file->getClientOriginalName(),
             'uploaded_by' => $actor->id,
         ]);
+    }
+
+    private function sameStoredPhoto($file, OperationImage $photo): bool
+    {
+        if (! Storage::disk('local')->exists($photo->path) || ! $file->getRealPath()) {
+            return false;
+        }
+
+        return hash_file('sha256', $file->getRealPath()) === hash('sha256', Storage::disk('local')->get($photo->path));
     }
 
     private function materialSnapshot(Operation $operation): array
@@ -812,6 +1328,18 @@ class MaintenanceCaseController extends Controller
                 'description' => 'Field maintenance record; quantities only.',
             ]);
         }
+    }
+
+    /** @return array<string, string> */
+    private function batchValidationMessages(): array
+    {
+        return [
+            'operations.*.materials.*.material_id.distinct' => 'هر مصالح در هر عملیات فقط یک بار مجاز است.',
+            'operations.*.materials.*.material_id.required' => 'شناسه مصالح الزامی است.',
+            'operations.*.materials.*.qty.required' => 'مقدار مصالح الزامی است.',
+            'operations.*.materials.*.qty.numeric' => 'مقدار مصالح باید عددی باشد.',
+            'operations.*.materials.*.qty.gt' => 'مقدار مصالح باید بیشتر از صفر باشد.',
+        ];
     }
 
     /** @param array<int, array{material_id:int|numeric-string,qty:numeric}> $materials */

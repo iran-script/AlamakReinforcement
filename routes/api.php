@@ -42,6 +42,7 @@ Route::prefix('v1/supervisor')->middleware(['auth:sanctum', 'mobile.supervisor']
     Route::get('cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase');
     Route::post('cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase');
     Route::post('cases/{maintenanceCase}/operations/batch', [MaintenanceCaseController::class, 'storeOperations'])->whereNumber('maintenanceCase');
+    Route::put('cases/{maintenanceCase}/operations/batch', [MaintenanceCaseController::class, 'updateOperations'])->whereNumber('maintenanceCase');
     Route::post('cases/{maintenanceCase}/operations', [MaintenanceCaseController::class, 'storeOperation'])->whereNumber('maintenanceCase');
     Route::put('cases/{maintenanceCase}/operations/{operation}', [MaintenanceCaseController::class, 'updateOperation'])->whereNumber('maintenanceCase')->whereNumber('operation');
     Route::post('cases/{maintenanceCase}/submit', [MaintenanceCaseController::class, 'submitOperations'])->whereNumber('maintenanceCase');

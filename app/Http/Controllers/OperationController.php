@@ -273,11 +273,21 @@ class OperationController extends Controller
     {
         Gate::authorize('delete', $operation);
 
-        $this->auditLogger->record('operation.deleted', $operation, $this->auditLogger->attributesFor($operation), null, [
-            'photo_ids' => $operation->images()->pluck('id')->all(),
-        ]);
-
-        DB::transaction(fn () => $operation->delete());
+        DB::transaction(function () use ($operation): void {
+            $operation = Operation::query()->lockForUpdate()->findOrFail($operation->id);
+            Gate::authorize('delete', $operation);
+            abort_unless(in_array($operation->status, ['draft', 'need_revision'], true), 409, 'این عملیات در وضعیت فعلی قابل حذف نیست.');
+            abort_unless(! $operation->images()->exists() && ! $operation->workflowTransfers()->exists(), 409, 'عملیاتی که عکس یا سابقه گردش‌کار دارد قابل حذف نیست.');
+            $before = $this->auditLogger->attributesFor($operation);
+            $photoIds = $operation->images()->pluck('id')->all();
+            $operation->delete();
+            $this->auditLogger->record('operation.soft_deleted', $operation, $before, [
+                'deleted_at' => $operation->deleted_at?->toISOString(),
+            ], [
+                'deletion_mode' => 'soft_delete',
+                'photo_ids' => $photoIds,
+            ]);
+        });
         return response()->json(['success' => true]);
     }
 

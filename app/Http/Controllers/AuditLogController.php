@@ -9,7 +9,8 @@ class AuditLogController extends Controller
 {
     public function index(Request $request)
     {
-        abort_unless($request->user()?->isSuperAdmin(), 403);
+        $user = $request->user();
+        abort_unless($user?->isSuperAdmin() || $user?->isGlobalMaintenanceViewer(), 403);
         $filters = $request->validate([
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
@@ -23,6 +24,13 @@ class AuditLogController extends Controller
         ]);
 
         $logs = AuditLog::query()->with(['actor:id,name,username', 'zone:id,name', 'riser:id,r_giscode', 'operation:id,status'])
+            ->when($user->isGlobalMaintenanceViewer(), function ($query): void {
+                $query->where(function ($maintenance): void {
+                    $maintenance->where('event', 'ilike', 'maintenance_case.%')
+                        ->orWhere('event', 'ilike', 'operation.%')
+                        ->orWhere('event', 'ilike', 'riser.%');
+                });
+            })
             ->when($filters['from'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
             ->when($filters['to'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '<=', $date))
             ->when($filters['actor_id'] ?? null, fn ($query, $id) => $query->where('actor_id', $id))

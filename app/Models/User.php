@@ -68,6 +68,17 @@ class User extends Authenticatable
         return $this->hasRole('superadmin');
     }
 
+    public function canViewAllMaintenanceOrganizations(): bool
+    {
+        return $this->hasRole('Global Maintenance Viewer')
+            && $this->hasPermissionTo('maintenance.case.view-all-zones', 'web');
+    }
+
+    public function isGlobalMaintenanceViewer(): bool
+    {
+        return $this->canViewAllMaintenanceOrganizations();
+    }
+
     public function hasPermission($permission)
     {
         if ($this->hasRole('superadmin')) {
@@ -112,12 +123,24 @@ class User extends Authenticatable
             return [];
         }
 
-        return $this->managedGroups()
+        $groupIds = $this->managedGroups()
             ->where('group_users.organization_id', $this->organization_id)
             ->where('group_users.zone_id', $this->zone_id)
             ->pluck('group_users.id')
             ->map(fn ($id) => (int) $id)
             ->all();
+
+        // A Boss who is the scoped owner of their own group remains eligible
+        // when that group predates (or missed) the managed-group pivot backfill.
+        if ($this->group_user_id && GroupUser::query()
+            ->whereKey($this->group_user_id)
+            ->where('organization_id', $this->organization_id)
+            ->where('zone_id', $this->zone_id)
+            ->exists()) {
+            $groupIds[] = (int) $this->group_user_id;
+        }
+
+        return array_values(array_unique($groupIds));
     }
 
     public function managesGroup(int $groupId): bool

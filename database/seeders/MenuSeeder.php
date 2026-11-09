@@ -25,6 +25,7 @@ class MenuSeeder extends Seeder
         ]],
         ['key' => '__group:repairs', 'title' => 'تعمیرات', 'icon' => 'bi bi-tools', 'sort' => 30, 'children' => [
             ['route' => 'maintenance-cases.index', 'title' => 'پرونده‌های تعمیر', 'icon' => 'bi bi-clipboard2-check', 'permission' => 'maintenance.case.view'],
+            ['route' => 'boss.maintenance-cases.index', 'title' => 'تأیید تعمیرات', 'icon' => 'bi bi-check2-square', 'permission' => 'operation.approve'],
             ['route' => 'operation-category.index', 'title' => 'انواع عملیات', 'icon' => 'bi bi-list-check', 'permission' => 'operation-category.view'],
         ]],
         ['key' => '__group:materials', 'title' => 'مصالح', 'icon' => 'bi bi-box-seam', 'sort' => 40, 'children' => [

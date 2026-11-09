@@ -44,6 +44,7 @@ class MenuService
         'roles.index' => 'role.view',
         'groupusers.index' => 'groupuser.view',
         'contract.index' => 'contract.view',
+        'boss.maintenance-cases.index' => 'operation.approve',
     ];
 
     public function get(): Collection
@@ -55,6 +56,19 @@ class MenuService
 
         $this->seenRoutes = [];
 
+        if ($user->isGlobalMaintenanceViewer()) {
+            return collect([
+                ['route' => 'dashboard', 'title' => 'داشبورد', 'icon' => 'bi bi-speedometer2', 'permission' => 'dashboard.view'],
+                ['route' => 'map', 'title' => 'نقشه', 'icon' => 'bi bi-map', 'permission' => 'map.view'],
+                ['route' => 'riserIndex', 'title' => 'علمک‌ها', 'icon' => 'bi bi-geo', 'permission' => 'riser.view'],
+                ['route' => 'maintenance-cases.index', 'title' => 'پرونده‌های تعمیرات', 'icon' => 'bi bi-clipboard2-check', 'permission' => 'maintenance.case.view'],
+                ['route' => 'audit.index', 'title' => 'تاریخچه تغییرات', 'icon' => 'bi bi-clock-history', 'permission' => 'maintenance.history.view'],
+                ['route' => 'reports.index', 'title' => 'گزارش‌ها', 'icon' => 'bi bi-file-earmark-bar-graph', 'permission' => 'report.view'],
+            ])->map(function (array $item): Menu {
+                return new Menu($item + ['visible' => true, 'is_active' => true]);
+            })->filter(fn (Menu $menu): bool => Route::has($menu->route) && $this->mayVisit($menu, $user))->values();
+        }
+
         $menus = Menu::query()
             ->whereNull('parent_id')
             ->where('visible', 1)
@@ -62,6 +76,22 @@ class MenuService
             ->with('children')
             ->orderBy('sort')
             ->get();
+
+        if ($user->hasRole('boss') && $user->can('operation.approve') && Route::has('boss.maintenance-cases.index')) {
+            $repairs = $menus->firstWhere('route', '__group:repairs');
+            if ($repairs && ! $repairs->children->contains(fn (Menu $child): bool => $child->route === 'boss.maintenance-cases.index')) {
+                $approvalMenu = new Menu([
+                    'title' => 'تأیید تعمیرات',
+                    'icon' => 'bi bi-check2-square',
+                    'route' => 'boss.maintenance-cases.index',
+                    'permission' => 'operation.approve',
+                    'sort' => 35,
+                    'visible' => true,
+                    'is_active' => true,
+                ]);
+                $repairs->setRelation('children', $repairs->children->push($approvalMenu));
+            }
+        }
 
         return $menus->map(fn (Menu $menu) => $this->filterMenu($menu, $user))
             ->filter()

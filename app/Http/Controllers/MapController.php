@@ -55,13 +55,16 @@ class MapController extends Controller
             'materials' => Material::query()->where('is_active', true)->orderBy('title')->get(['id', 'title', 'unit']),
             'maintenanceZones' => $request->user()->isSuperAdmin()
                 ? Zone::query()->orderBy('name')->get(['id', 'name'])
-                : Zone::query()->whereKey($request->user()->zone_id)->get(['id', 'name']),
+                : ($request->user()->isGlobalMaintenanceViewer()
+                    ? Zone::query()->orderBy('name')->get(['id', 'name'])
+                    : Zone::query()->whereKey($request->user()->zone_id)->get(['id', 'name'])),
             'maintenanceSupervisors' => User::query()->whereHas('roles', fn ($roles) => $roles->where('name', 'supervisor')->where('guard_name', 'web'))
-                ->when(! $request->user()->isSuperAdmin(), fn ($query) => $query
+                ->when(! $request->user()->isSuperAdmin() && ! $request->user()->isGlobalMaintenanceViewer(), fn ($query) => $query
                     ->where('zone_id', $request->user()->zone_id)
                     ->where('organization_id', $request->user()->organization_id)
                     ->whereIn('group_user_id', $request->user()->hasRole('boss')
                         ? $request->user()->managedGroupIds() : [(int) $request->user()->group_user_id]))
+                ->when($request->user()->isGlobalMaintenanceViewer(), fn ($query) => $query)
                 ->orderBy('name')->get(['id', 'name']),
         ]);
     }
@@ -210,6 +213,20 @@ class MapController extends Controller
         }
 
         // کاربر عادی بدون زون، اجازه نمایش داده ندارد
+        if ($user->isGlobalMaintenanceViewer()) {
+            $extent = DB::selectOne('
+                SELECT ST_AsGeoJSON(ST_Envelope(ST_Extent(ST_Transform(geom, 4326)))) AS geometry
+                FROM public.zone
+                WHERE geom IS NOT NULL
+            ');
+
+            return response()->json([
+                'is_superadmin' => false,
+                'zone_name' => 'همه Zoneهای سازمان مجاز',
+                'geometry' => $extent?->geometry ? json_decode($extent->geometry) : null,
+            ]);
+        }
+
         if (! $user->zone_id) {
             return response()->json([
                 'is_superadmin' => false,

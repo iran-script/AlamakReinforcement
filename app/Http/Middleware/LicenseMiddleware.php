@@ -13,7 +13,10 @@ class LicenseMiddleware
             return $next($request);
         }
 
-        $licensePath = config('license.license_path');
+        $licensePath = $this->resolveConfiguredPath(
+            config('license.license_path'),
+            storage_path('license/license.dat')
+        );
 
         if (! is_file($licensePath)) {
 
@@ -33,9 +36,18 @@ class LicenseMiddleware
 
         // Legacy licenses have no key_id and are verified only with the legacy key.
         // A new license with an unknown key_id must never fall back to that key.
+        $legacyPublicKeyPath = $this->resolveConfiguredPath(
+            config('license.legacy_public_key_path'),
+            storage_path('license/public.pem')
+        );
+        $publicKeysPath = $this->resolveConfiguredPath(
+            config('license.public_keys_path'),
+            storage_path('license/keys')
+        );
+
         $publicKeyPath = $keyId === null
-            ? config('license.legacy_public_key_path')
-            : rtrim(config('license.public_keys_path'), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$keyId.'.pem';
+            ? $legacyPublicKeyPath
+            : rtrim($publicKeysPath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$keyId.'.pem';
 
         if (! is_file($publicKeyPath)) {
             return response()->view('license-expired');
@@ -91,5 +103,27 @@ class LicenseMiddleware
         return $packedAddress === inet_pton('127.0.0.1')
             || (strlen($packedAddress ?: '') === 4 && ord($packedAddress[0]) === 127)
             || $packedAddress === inet_pton('::1');
+    }
+
+    private function resolveConfiguredPath(?string $configuredPath, string $fallback): string
+    {
+        if (! is_string($configuredPath) || trim($configuredPath) === '') {
+            return $fallback;
+        }
+
+        $path = trim($configuredPath);
+
+        if ($this->isAbsolutePath($path)) {
+            return $path;
+        }
+
+        return base_path($path);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, '/')
+            || str_starts_with($path, '\\')
+            || preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
     }
 }

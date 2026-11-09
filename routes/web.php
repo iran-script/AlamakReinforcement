@@ -5,6 +5,7 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ContractController;
 use App\Http\Controllers\ContractorController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\BossMaintenanceCaseController;
 use App\Http\Controllers\GroupUserController;
 use App\Http\Controllers\GisSettingsController;
 use App\Http\Controllers\MapController;
@@ -68,17 +69,25 @@ Route::post('/login', [
 */
 
 Route::middleware('auth')->group(function () {
-    Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit.index');
-    Route::get('/maintenance-cases', [MaintenanceCaseController::class, 'index'])->name('maintenance-cases.index');
-    Route::post('/maintenance-cases', [MaintenanceCaseController::class, 'store'])->name('maintenance-cases.store');
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('check_permission:maintenance.history.view')->name('audit.index');
+    Route::get('/maintenance-cases', [MaintenanceCaseController::class, 'index'])->middleware('check_permission:maintenance.case.view')->name('maintenance-cases.index');
+    Route::post('/maintenance-cases', [MaintenanceCaseController::class, 'store'])->middleware('check_permission:maintenance.case.create')->name('maintenance-cases.store');
     Route::get('/maintenance-cases/{maintenanceCase}/operations/create', [MaintenanceCaseController::class, 'createOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.create');
+    Route::get('/maintenance-cases/{maintenanceCase}/operations/edit', [MaintenanceCaseController::class, 'editOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.edit');
     Route::post('/maintenance-cases/{maintenanceCase}/operations', [MaintenanceCaseController::class, 'storeOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.store');
+    Route::put('/maintenance-cases/{maintenanceCase}/operations', [MaintenanceCaseController::class, 'updateOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.update-batch');
+    Route::post('/maintenance-cases/{maintenanceCase}/operations/submit', [MaintenanceCaseController::class, 'submitOperations'])->whereNumber('maintenanceCase')->name('maintenance-cases.operations.submit');
     Route::put('/maintenance-cases/{maintenanceCase}/operations/{operation}', [MaintenanceCaseController::class, 'updateOperation'])->whereNumber('maintenanceCase')->whereNumber('operation')->name('maintenance-cases.operations.update');
-    Route::get('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase')->name('maintenance-cases.show');
-    Route::get('/maintenance-cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto')->name('maintenance-cases.photos.show');
+    Route::get('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'show'])->middleware('check_permission:maintenance.case.view')->whereNumber('maintenanceCase')->name('maintenance-cases.show');
+    Route::get('/maintenance-cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->middleware('check_permission:maintenance.case.view')->whereNumber('operationPhoto')->name('maintenance-cases.photos.show');
     Route::post('/maintenance-cases/{maintenanceCase}/operation', [MaintenanceCaseController::class, 'complete'])->whereNumber('maintenanceCase')->name('maintenance-cases.operation.store');
     Route::put('/maintenance-cases/{maintenanceCase}', [MaintenanceCaseController::class, 'update'])->whereNumber('maintenanceCase')->name('maintenance-cases.update');
     Route::post('/maintenance-cases/{maintenanceCase}/review', [MaintenanceCaseController::class, 'review'])->whereNumber('maintenanceCase')->name('maintenance-cases.review');
+    Route::prefix('boss/maintenance-cases')->name('boss.maintenance-cases.')->group(function () {
+        Route::get('/', [BossMaintenanceCaseController::class, 'index'])->name('index');
+        Route::get('/{maintenanceCase}', [BossMaintenanceCaseController::class, 'show'])->whereNumber('maintenanceCase')->name('show');
+        Route::post('/{maintenanceCase}/review', [MaintenanceCaseController::class, 'finalReview'])->whereNumber('maintenanceCase')->name('review');
+    });
     Route::get('/settings/gis-map', [GisSettingsController::class, 'edit'])->name('settings.gis.edit');
     Route::post('/settings/gis-map/test-service', [GisSettingsController::class, 'testService'])->name('settings.gis.test-service');
     Route::put('/settings/gis-map', [GisSettingsController::class, 'update'])->name('settings.gis.update');
@@ -267,6 +276,8 @@ Route::middleware('auth')->group(function () {
 
     Route::post('riser/photos/upload', [OperationImageController::class, 'store'])->name('riser.photos.upload');
     Route::post('operation/photos/upload', [OperationImageController::class, 'store'])->name('operation.photos.upload');
+    Route::post('maintenance-cases/{maintenanceCase}/photos/{type}', [MaintenanceCaseController::class, 'storeCasePhoto'])
+        ->whereIn('type', ['before', 'after'])->name('maintenance-cases.photos.store');
     Route::delete('operation/photos/{operationPhoto}', [OperationImageController::class, 'destroy'])->name('operation.photos.destroy');
     Route::get('riser/{riser}/pending-before-photos', [OperationImageController::class, 'pendingBefore'])->name('operation.photos.pending-before');
 
@@ -339,10 +350,10 @@ Route::middleware('auth')->group(function () {
             Route::get('/data', 'data')
                 ->name('report.data');
 
-            Route::get('/excel', 'excel')
+            Route::get('/excel', 'excel')->middleware('check_permission:report.export')
                 ->name('report.excel');
 
-            Route::get('/pdf', 'pdf')
+            Route::get('/pdf', 'pdf')->middleware('check_permission:report.export')
                 ->name('report.pdf');
 
             Route::post('/saved', 'storeSaved')->name('reports.saved.store');

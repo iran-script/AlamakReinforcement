@@ -11,6 +11,7 @@ use App\Services\WorkflowService;
 use Illuminate\Support\Facades\Auth;
 use App\Models\WorkflowTransfer;
 use App\Models\MaintenanceCase;
+use App\Models\AuditLog;
 use App\Services\MapProfileService;
 use Illuminate\Validation\Rule;
 
@@ -121,13 +122,72 @@ class RiserController extends Controller
     public function show($id, MapProfileService $profiles)
     {
         $user = request()->user();
+        $riser = Riser::query()->visibleTo($user)->findOrFail($id);
         $returnTo = request()->query('return_to');
         if (! is_string($returnTo) || ! str_starts_with($returnTo, url('/'))) {
             $returnTo = route('riserIndex');
         }
 
+        $caseQuery = MaintenanceCase::query()
+            ->where('riser_id', $riser->id)
+            ->with([
+                'riser:id,r_giscode,giscode', 'reporter:id,name', 'assignedGroup:id,name', 'lastEditor:id,name',
+                'photos:id,maintenance_case_id,operation_id,riser_id,type,path,original_name,uploaded_by',
+                'operations.operationCategory', 'operations.operationMaterial', 'operations.images',
+            ])
+            ->latest('identified_at')->latest('id');
+
+        if (! $user->isSuperAdmin() && ! $user->isGlobalMaintenanceViewer()) {
+            $caseQuery->when($user->hasRole('boss'),
+                fn ($query) => $query->whereIn('assigned_group_id', $user->managedGroupIds()),
+                fn ($query) => $query->where('assigned_group_id', $user->group_user_id));
+        }
+
+        $maintenanceCases = $caseQuery->get();
+        $currentStatuses = [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED];
+        $maintenanceCase = $maintenanceCases->first(fn (MaintenanceCase $case): bool => in_array($case->status, $currentStatuses, true));
+        $historicalCases = $maintenanceCases->reject(fn (MaintenanceCase $case): bool => $maintenanceCase && $case->id === $maintenanceCase->id)->values();
+        $timeline = collect();
+
+        if ($maintenanceCase) {
+            $operationIds = $maintenanceCase->operations->modelKeys();
+            $auditLogs = AuditLog::query()->with('actor:id,name')
+                ->where(function ($query) use ($maintenanceCase, $operationIds): void {
+                    $query->where(fn ($caseQuery) => $caseQuery->where('auditable_type', MaintenanceCase::class)->where('auditable_id', $maintenanceCase->id))
+                        ->orWhereIn('operation_id', $operationIds);
+                })->latest('created_at')->latest('id')->limit(120)->get();
+            $workflowTransfers = WorkflowTransfer::query()->with(['fromUser:id,name', 'toUser:id,name'])
+                ->where('riser_id', $riser->id)
+                ->where(fn ($query) => $query->whereIn('operation_id', $operationIds)->orWhereNull('operation_id'))
+                ->latest('send_date')->latest('id')->limit(80)->get();
+            $timeline = collect()
+                ->merge($auditLogs->map(fn (AuditLog $log): array => ['at' => $log->created_at, 'title' => $log->event, 'actor' => $log->actor?->name, 'detail' => $log->metadata]))
+                ->merge($workflowTransfers->map(fn (WorkflowTransfer $transfer): array => ['at' => $transfer->send_date, 'title' => $transfer->title ?: $transfer->type, 'actor' => $transfer->fromUser?->name, 'detail' => $transfer->comment]))
+                ->sortByDesc(fn (array $item): int => $item['at']?->timestamp ?? 0)->values();
+        }
+
+        $canEditOperations = $maintenanceCase && $user->hasRole('supervisor')
+            && (int) $maintenanceCase->assigned_group_id === (int) $user->group_user_id
+            && $maintenanceCase->canAcceptOperations();
+        $canSubmitOperations = $canEditOperations && $maintenanceCase->operations->isNotEmpty();
+        $canReview = $maintenanceCase && $user->hasRole('boss') && $user->can('operation.approve')
+            && $user->managesGroup((int) $maintenanceCase->assigned_group_id)
+            && $maintenanceCase->status === MaintenanceCase::STATUS_SUBMITTED;
+        $canEditPhotos = $maintenanceCase && ($user->isSuperAdmin()
+            || ($user->hasRole('boss') && $user->can('operation.edit') && $user->managesGroup((int) $maintenanceCase->assigned_group_id))
+            || ($user->hasRole('supervisor') && (int) $user->group_user_id === (int) $maintenanceCase->assigned_group_id && $maintenanceCase->canAcceptOperations()));
+
         return view('riser.show', [
             'id' => $id,
+            'riser' => $riser,
+            'maintenanceCase' => $maintenanceCase,
+            'maintenanceCases' => $maintenanceCases,
+            'historicalCases' => $historicalCases,
+            'timeline' => $timeline,
+            'canEditOperations' => (bool) $canEditOperations,
+            'canSubmitOperations' => (bool) $canSubmitOperations,
+            'canReview' => (bool) $canReview,
+            'canEditPhotos' => (bool) $canEditPhotos,
             'baseMap' => $profiles->payloadForView($user),
             'hasActiveMapProfile' => $profiles->activeFor($user) !== null,
             'returnTo' => $returnTo,
@@ -167,7 +227,7 @@ class RiserController extends Controller
         */
 
         $riser = DB::table('riser')
-            ->select('id', 'r_giscode','geom', 'updated_at', 'status')
+            ->select('id', 'r_giscode', 'giscode', 'geom', 'updated_at', 'status')
             ->selectRaw('ST_Asgeojson(ST_Transform(geom, 4326)) as wkt')
             ->where('id', $id)
             ->first();
@@ -190,9 +250,8 @@ class RiserController extends Controller
 
         $caseQuery = MaintenanceCase::query()
             ->where('riser_id', $id)
-            ->whereIn('status', [MaintenanceCase::STATUS_OPEN, MaintenanceCase::STATUS_IN_PROGRESS, MaintenanceCase::STATUS_SUBMITTED, MaintenanceCase::STATUS_RETURNED])
-            ->with(['photos:id,maintenance_case_id,operation_id,riser_id,type,path,original_name,uploaded_by']);
-        if (! $currentUser->isSuperAdmin()) {
+            ->with(['photos' => fn ($query) => $query->whereNull('operation_id')->select('id', 'maintenance_case_id', 'operation_id', 'riser_id', 'type', 'path', 'original_name', 'uploaded_by')]);
+        if (! $currentUser->isSuperAdmin() && ! $currentUser->isGlobalMaintenanceViewer()) {
             $caseQuery->when($currentUser->hasRole('boss'),
                 fn ($query) => $query->whereIn('assigned_group_id', $currentUser->managedGroupIds()),
                 fn ($query) => $query->where('assigned_group_id', $currentUser->group_user_id));
@@ -231,6 +290,7 @@ class RiserController extends Controller
             ->map(function ($item) {
                 return [
                     'id' => $item->id,
+                    'maintenance_case_id' => $item->maintenance_case_id,
                     'opencat' => $item->operationCategory,
                     'date' => $item->operation_date,
                     'user' => $item->user,
@@ -306,7 +366,9 @@ class RiserController extends Controller
 
             'id' => $riser->id,
 
-            'code' => $riser->r_giscode,
+            'code' => $riser->r_giscode ?: $riser->giscode,
+            'status' => $riser->status,
+            'updated_at' => optional($riser->updated_at)->format('Y/m/d H:i'),
             'zone_name' => $zone?->name,
             'zone_id' => $zone?->id,
             'organization_name' => $zone?->organization_name,
@@ -318,8 +380,22 @@ class RiserController extends Controller
                 'operations_create_url' => $openCase->canAcceptOperations()
                     ? route('maintenance-cases.operations.create', $openCase)
                     : null,
+                'operations_edit_url' => $currentUser->hasRole('supervisor')
+                    && (int) $openCase->assigned_group_id === (int) $currentUser->group_user_id
+                    && $openCase->canAcceptOperations()
+                    && $openCase->operations()->exists()
+                    ? route('maintenance-cases.operations.edit', $openCase)
+                    : null,
+                'can_edit_operations' => $currentUser->hasRole('supervisor')
+                    && (int) $openCase->assigned_group_id === (int) $currentUser->group_user_id
+                    && $openCase->canAcceptOperations()
+                    && $openCase->operations()->exists(),
+                'can_edit_photos' => $currentUser->isSuperAdmin()
+                    || ($currentUser->hasRole('boss') && $currentUser->can('operation.edit') && $currentUser->managesGroup((int) $openCase->assigned_group_id))
+                    || ($currentUser->hasRole('supervisor') && (int) $currentUser->group_user_id === (int) $openCase->assigned_group_id && $openCase->canAcceptOperations()),
                 'photos' => $openCase->photos->map(fn ($photo) => [
                     'id' => $photo->id,
+                    'operation_id' => $photo->operation_id,
                     'type' => $photo->type,
                     'url' => route('maintenance-cases.photos.show', $photo),
                 ])->values(),
@@ -376,11 +452,19 @@ class RiserController extends Controller
         $bindings = [];
 
         if (! $user->hasRole('superadmin')) {
-            if (!$user->zone_id) {
+            if ($user->isGlobalMaintenanceViewer()) {
+                $zoneFilter = "
+                AND EXISTS (
+                    SELECT 1 FROM zone z
+                    WHERE z.geom IS NOT NULL
+                      AND t.geom_3857 IS NOT NULL
+                      AND ST_Intersects(t.geom_3857, ST_Transform(z.geom, 3857))
+                )
+                ";
+            } elseif (!$user->zone_id) {
                 return response()->json([]);
-            }
-
-            $zoneFilter = "
+            } else {
+                $zoneFilter = "
             AND ST_Intersects(
                 t.geom_3857,
                 ST_Transform(
@@ -391,6 +475,7 @@ class RiserController extends Controller
         ";
 
             $bindings[] = $user->zone_id;
+            }
         }
 
         $sql = "
@@ -413,6 +498,7 @@ class RiserController extends Controller
                 o.operation_date
             FROM operations o
             WHERE o.riser_id = t.id
+              AND o.deleted_at IS NULL
             ORDER BY o.operation_date DESC, o.id DESC
             LIMIT 1
         ) op ON true
@@ -424,6 +510,7 @@ class RiserController extends Controller
             SELECT COUNT(*) AS operation_count
             FROM operations o
             WHERE o.riser_id = t.id
+              AND o.deleted_at IS NULL
         ) op_count ON true
 
         LEFT JOIN LATERAL (

@@ -122,6 +122,10 @@ class GroupUserController extends Controller
             'organizations' => Organization::query()->orderBy('name')->get(['id', 'name']),
             'zones' => Zone::query()->orderBy('name')->get(['id', 'name', 'organization_id']),
             'bosses' => User::query()->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))
+                ->where(function ($permissions): void {
+                    $permissions->whereHas('permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'))
+                        ->orWhereHas('roles.permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'));
+                })
                 ->with('zone:id,name')->orderBy('name')->get(['id', 'name', 'zone_id', 'organization_id']),
         ];
     }
@@ -138,7 +142,11 @@ class GroupUserController extends Controller
         if ($ids === []) return [];
 
         $validCount = User::query()->whereIn('id', $ids)->where('organization_id', $organizationId)->where('zone_id', $zoneId)
-            ->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))->count();
+            ->whereHas('roles', fn ($roles) => $roles->where('name', 'boss')->where('guard_name', 'web'))
+            ->where(function ($permissions): void {
+                $permissions->whereHas('permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'))
+                    ->orWhereHas('roles.permissions', fn ($query) => $query->where('name', 'operation.approve')->where('guard_name', 'web'));
+            })->count();
         abort_unless($validCount === count($ids), 422, 'رئیس ناحیه باید در همان سازمان و Zone گروه باشد.');
 
         return $ids;

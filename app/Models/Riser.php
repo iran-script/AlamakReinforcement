@@ -27,6 +27,16 @@ class Riser extends Model
             return $query;
         }
 
+        if ($user->isGlobalMaintenanceViewer()) {
+            return $query->whereExists(function ($zone): void {
+                $zone->selectRaw('1')
+                    ->from('zone')
+                    ->whereRaw('zone.geom IS NOT NULL')
+                    ->whereRaw('riser.geom IS NOT NULL')
+                    ->whereRaw('ST_Intersects(riser.geom, zone.geom)');
+            });
+        }
+
         if (!$user->zone_id) {
             return $query->whereRaw('1 = 0');
         }
