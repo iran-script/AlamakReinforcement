@@ -1,14 +1,18 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/data/api_client.dart';
 import '../auth/session_controller.dart';
 import 'case_repository.dart';
-import 'case_pages.dart' show CompleteOperationSheet;
-import 'case_material_totals.dart';
+import 'image_source_sheet.dart';
+import 'material_picker_sheet.dart';
+import 'operation_draft.dart';
 
 class RepairCasePage extends ConsumerStatefulWidget {
   const RepairCasePage({super.key, required this.caseId});
@@ -19,199 +23,380 @@ class RepairCasePage extends ConsumerStatefulWidget {
 }
 
 class _RepairCasePageState extends ConsumerState<RepairCasePage> {
-  Future<Map<String, dynamic>>? _request;
-  Map<String, dynamic>? _cachedCase;
-  List<Map<String, dynamic>> _pendingLocal = [];
-  bool _offlineView = false;
-  bool _submitting = false;
+  final _picker = ImagePicker();
+  Future<void>? _loading;
+  Map<String, dynamic>? _case;
+  List<OperationDraft> _operations = [];
+  final List<int> _deletedOperationIds = [];
+  List<Map<String, dynamic>> _categories = [];
+  List<Map<String, dynamic>> _materials = [];
+  List<Map<String, dynamic>> _photos = [];
+  XFile? _beforePhoto;
+  XFile? _afterPhoto;
+  int _activeIndex = 0;
+  bool _dirty = false;
+  bool _pendingLocal = false;
+  bool _busy = false;
+  String? _referencesError;
 
   @override
-  void initState() { super.initState(); _load(); }
-
-  void _load() {
-    _request = _loadDetails();
+  void initState() {
+    super.initState();
+    _loading = _load();
   }
 
-  Future<Map<String, dynamic>> _loadDetails() async {
+  Future<void> _load() async {
+    final session = ref.read(sessionProvider);
     try {
-      final response = await ref.read(sessionProvider).api!.dio.get('v1/supervisor/cases/${widget.caseId}');
-      final item = Map<String, dynamic>.from(response.data['case'] as Map);
-      _cachedCase = item;
-      _offlineView = false;
-      await _loadLocalDrafts();
-      return item;
-    } on DioException {
-      if (_cachedCase == null) rethrow;
-      _offlineView = true;
-      await _loadLocalDrafts();
-      return _cachedCase!;
+      final responses = await Future.wait([
+        session.api!.dio.get('v1/supervisor/cases/${widget.caseId}'),
+        session.api!.dio.get('v1/supervisor/references'),
+      ]);
+      final item = Map<String, dynamic>.from(responses[0].data['case'] as Map);
+      final references = Map<String, dynamic>.from(responses[1].data as Map);
+      if (!mounted) return;
+      setState(() {
+        _case = item;
+        _operations = List<Map<String, dynamic>>.from(
+          (item['operations'] as List? ?? const []).map((entry) => Map<String, dynamic>.from(entry as Map)),
+        ).map(OperationDraft.fromJson).toList();
+        _photos = List<Map<String, dynamic>>.from(
+          (item['photos'] as List? ?? const []).map((entry) => Map<String, dynamic>.from(entry as Map)),
+        );
+        _categories = List<Map<String, dynamic>>.from(
+          (references['operation_categories'] as List? ?? const []).map((entry) => Map<String, dynamic>.from(entry as Map)),
+        );
+        _materials = List<Map<String, dynamic>>.from(
+          (references['materials'] as List? ?? const []).map((entry) => Map<String, dynamic>.from(entry as Map)),
+        );
+        _dirty = false;
+        _pendingLocal = false;
+        _referencesError = null;
+      });
+      final pending = await CaseRepository(session).pending();
+      final hasPending = pending.any((row) {
+        if (row['kind'] != 'operations_batch') return false;
+        final payload = row['payload'];
+        if (payload is! String) return false;
+        final decoded = Map<String, dynamic>.from(jsonDecode(payload) as Map);
+        return '${decoded['case_id']}' == '${widget.caseId}';
+      });
+      if (mounted) setState(() => _pendingLocal = hasPending);
+    } catch (error) {
+      if (mounted) setState(() => _referencesError = ApiClient.messageFrom(error) ?? 'دریافت پرونده انجام نشد.');
+      rethrow;
     }
   }
 
-  Future<void> _loadLocalDrafts() async {
-    final rows = await CaseRepository(ref.read(sessionProvider)).pending();
-    final pending = <Map<String, dynamic>>[];
-    for (final row in rows) {
-      if (!['operation_draft', 'operation_update'].contains(row['kind'])) continue;
-      final payload = jsonDecode(row['payload']! as String) as Map;
-      if ('${payload['case_id']}' == '${widget.caseId}') pending.add(Map<String, dynamic>.from(payload));
+  bool get _locked => _case?['status'] == 'submitted' || _case?['status'] == 'completed';
+  bool get _canEdit => !_locked && ['open', 'in_progress', 'returned'].contains(_case?['status']);
+
+  void _markDirty() {
+    if (!_dirty) setState(() => _dirty = true);
+  }
+
+  void _addOperation() {
+    if (!_canEdit) return;
+    setState(() {
+      _operations.add(OperationDraft(clientUuid: const Uuid().v4()));
+      _activeIndex = _operations.length - 1;
+      _dirty = true;
+    });
+  }
+
+  Future<void> _removeOperation(int index) async {
+    if (!_canEdit) return;
+    final operation = _operations[index];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حذف عملیات؟'),
+        content: Text(operation.isPersisted ? 'این عملیات به‌صورت منطقی حذف می‌شود.' : 'این عملیات جدید از فرم حذف می‌شود.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('انصراف')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('حذف')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      if (operation.id != null) _deletedOperationIds.add(operation.id!);
+      _operations.removeAt(index);
+      _activeIndex = _operations.isEmpty ? 0 : _activeIndex.clamp(0, _operations.length - 1);
+      _dirty = true;
+    });
+  }
+
+  Future<Map<String, dynamic>> _referencesForPicker() async => {'materials': _materials};
+
+  Future<void> _selectMaterials(OperationDraft operation) async {
+    final initial = {for (final item in operation.materials.values) item.id: item.quantity};
+    final selected = await showMaterialPicker(context, loadReferences: _referencesForPicker, initialQuantities: initial);
+    if (!mounted || selected == null) return;
+    setState(() {
+      operation.materials.removeWhere((id, _) => !selected.containsKey(id));
+      for (final entry in selected.entries) {
+        final reference = _materials.firstWhere(
+          (material) => int.tryParse('${material['id']}') == entry.key,
+          orElse: () => <String, dynamic>{},
+        );
+        operation.materials[entry.key] = MaterialDraft(
+          id: entry.key,
+          title: '${reference['title'] ?? 'مصالح #${entry.key}'}',
+          unit: '${reference['unit'] ?? ''}',
+          quantity: entry.value,
+        );
+      }
+      _dirty = true;
+    });
+  }
+
+  Future<void> _pickCasePhoto(String type) async {
+    try {
+      final selected = await chooseImages(
+        context,
+        camera: () => _picker.pickImage(source: ImageSource.camera, imageQuality: 82, maxWidth: 1800),
+        gallery: () => _picker.pickMultiImage(imageQuality: 82, maxWidth: 1800),
+      );
+      if (!mounted || selected.isEmpty) return;
+      setState(() {
+        if (type == 'before') {
+          _beforePhoto = selected.first;
+        } else {
+          _afterPhoto = selected.first;
+        }
+        _dirty = true;
+      });
+    } catch (_) {
+      if (mounted) _showMessage('انتخاب تصویر انجام نشد.');
     }
-    if (mounted) setState(() => _pendingLocal = pending);
+  }
+
+  Future<void> _save() async {
+    if (_busy || !_canEdit) return;
+    if (_operations.isEmpty && _deletedOperationIds.isEmpty) {
+      _showMessage('حداقل یک عملیات معتبر اضافه کنید.');
+      return;
+    }
+    for (final operation in _operations) {
+      final error = operation.validate();
+      if (error != null) {
+        _showMessage(error);
+        return;
+      }
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await CaseRepository(ref.read(sessionProvider)).saveOperations(
+        caseId: widget.caseId,
+        operations: _operations,
+        deletedOperationIds: _deletedOperationIds,
+        beforePhotoPath: _beforePhoto?.path,
+        afterPhotoPath: _afterPhoto?.path,
+      );
+      if (!mounted) return;
+      setState(() {
+        _dirty = false;
+        _pendingLocal = !result.serverSaved;
+        _beforePhoto = null;
+        _afterPhoto = null;
+        if (result.serverSaved) _deletedOperationIds.clear();
+      });
+      _showMessage(result.serverSaved ? 'همه عملیات با موفقیت ذخیره شد.' : 'تغییرات فقط به‌صورت Pending Local ذخیره شد و هنوز روی سرور قطعی نیست.');
+      if (result.serverSaved) await _reloadAfterSave();
+    } on DioException catch (error) {
+      if (mounted) _showMessage(_serverValidationMessage(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _reloadAfterSave() async {
+    try {
+      await _load();
+    } catch (_) {
+      // The save already succeeded; keep the editor state visible.
+    }
   }
 
   Future<void> _submitForReview() async {
-    if (_submitting) return;
-    setState(() => _submitting = true);
+    if (_busy || !_canEdit) return;
+    if (_dirty || _pendingLocal) {
+      _showMessage('ابتدا تغییرات را در حالت آنلاین ذخیره کنید.');
+      return;
+    }
+    if (_operations.isEmpty) {
+      _showMessage('برای ارسال، پرونده باید حداقل یک عملیات داشته باشد.');
+      return;
+    }
+    setState(() => _busy = true);
     try {
       await ref.read(sessionProvider).api!.dio.post('v1/supervisor/cases/${widget.caseId}/submit');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('\u067e\u0631\u0648\u0646\u062f\u0647 \u0628\u0631\u0627\u06cc \u0628\u0631\u0631\u0633\u06cc \u0627\u0631\u0633\u0627\u0644 \u0634\u062f.')));
-        setState(_load);
+        _showMessage('پرونده برای تأیید رئیس ارسال شد.');
+        await _reloadAfterSave();
       }
     } on DioException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFrom(error) ?? '\u0627\u0631\u0633\u0627\u0644 \u067e\u0631\u0648\u0646\u062f\u0647 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f.')));
-    } finally { if (mounted) setState(() => _submitting = false); }
+      if (mounted) _showMessage(ApiClient.messageFrom(error) ?? 'ارسال پرونده انجام نشد.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
-  Future<void> _editOperation(Map<String, dynamic> operation) async {
-    await showModalBottomSheet<void>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      builder: (sheetContext) => CompleteOperationSheet(
-        caseId: widget.caseId, riserId: int.tryParse('${_cachedCase?['riser_id'] ?? ''}'), operation: operation, draftMode: true,
-        onSaved: () { Navigator.pop(sheetContext); setState(_load); },
-      ),
-    );
-  }
+  void _showMessage(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 
-  Future<void> _addOperation() async {
-    await showModalBottomSheet<void>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      builder: (sheetContext) => CompleteOperationSheet(
-        caseId: widget.caseId, riserId: int.tryParse('${_cachedCase?['riser_id'] ?? ''}'), draftMode: true,
-        onSaved: () { Navigator.pop(sheetContext); setState(_load); },
-      ),
-    );
+  String _serverValidationMessage(DioException error) {
+    final response = error.response;
+    final errors = response?.data is Map ? response!.data['errors'] : null;
+    if (response?.statusCode == 422 && errors is Map && errors.isNotEmpty) {
+      final firstKey = errors.keys.first.toString();
+      final value = errors[firstKey];
+      final detail = value is List && value.isNotEmpty ? value.first.toString() : value?.toString();
+      final match = RegExp(r'operations\.(\d+)(?:\.materials\.(\d+))?').firstMatch(firstKey);
+      if (match != null) {
+        final operation = int.parse(match.group(1)!) + 1;
+        final material = match.group(2) == null ? null : int.parse(match.group(2)!) + 1;
+        return material == null
+            ? 'عملیات $operation: ${detail ?? 'مقدار نامعتبر است.'}'
+            : 'عملیات $operation، مصالح $material: ${detail ?? 'مقدار نامعتبر است.'}';
+      }
+      return detail ?? 'اطلاعات عملیات معتبر نیست.';
+    }
+    if (response?.statusCode == 409) return 'پرونده یا عملیات در جای دیگری تغییر کرده است؛ ابتدا تازه‌سازی کنید.';
+    return ApiClient.messageFrom(error) ?? 'ذخیره عملیات انجام نشد.';
   }
 
   @override
   Widget build(BuildContext context) => Directionality(
-    textDirection: TextDirection.rtl,
-    child: Scaffold(
-      appBar: AppBar(title: const Text('\u062a\u0639\u0645\u06cc\u0631\u0627\u062a \u0639\u0644\u0645\u06a9')),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _request,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return _failure(snapshot.error);
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final item = snapshot.data!;
-          final operations = List<Map<String, dynamic>>.from((item['operations'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map)));
-          final photos = List<Map<String, dynamic>>.from((item['photos'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map)));
-          final beforePhotos = photos.where((photo) => photo['type'] == 'before').toList();
-          final canEdit = ['open', 'in_progress', 'returned'].contains(item['status']);
-          return ListView(padding: const EdgeInsets.all(16), children: [
-            if (_offlineView) const _InfoBanner('\u0627\u062a\u0635\u0627\u0644 \u0642\u0637\u0639 \u0627\u0633\u062a\u061b \u062f\u0627\u062f\u0647\u200c\u0647\u0627\u06cc \u0646\u0645\u0627\u06cc\u0634\u06cc \u0622\u062e\u0631\u06cc\u0646 \u062f\u0631\u06cc\u0627\u0641\u062a \u0634\u062f\u0647\u200c\u0627\u0646\u062f.'),
-            ..._pendingLocal.map((draft) => Card(color: Colors.amber.shade50, child: ListTile(leading: const Icon(Icons.cloud_upload_outlined, color: Colors.orange), title: const Text('\u0639\u0645\u0644\u06cc\u0627\u062a \u062f\u0631 \u0635\u0641 \u0647\u0645\u06af\u0627\u0645\u200c\u0633\u0627\u0632\u06cc'), subtitle: Text(draft['description']?.toString() ?? '\u062b\u0628\u062a \u0645\u062d\u0644\u06cc \u062a\u0627 \u0648\u0635\u0648\u0644 \u0627\u062a\u0635\u0627\u0644 \u062a\u0623\u06cc\u06cc\u062f \u0646\u0645\u06cc\u200c\u0634\u0648\u062f.')))),
-            Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(item['riser']?['r_giscode']?.toString() ?? '\u0639\u0644\u0645\u06a9 ${item['riser_id'] ?? ''}', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              Text('\u0634\u0646\u0627\u0633\u0647 \u0639\u0644\u0645\u06a9: ${item['riser_id'] ?? ''}'),
-              const SizedBox(height: 8),
-              Chip(label: Text(_status(item['status'])), avatar: const Icon(Icons.assignment_outlined)),
-              Text('\u0627\u0648\u0644\u0648\u06cc\u062a: ${item['priority'] ?? '\u0646\u0627\u0645\u0634\u062e\u0635'}'),
-              Text(item['description']?.toString().isNotEmpty == true ? item['description'].toString() : '\u0634\u0631\u062d\u06cc \u062b\u0628\u062a \u0646\u0634\u062f\u0647 \u0627\u0633\u062a.'),
-              if (item['identified_at'] != null) Text('\u062a\u0627\u0631\u06cc\u062e \u062b\u0628\u062a: ${item['identified_at']}'),
-              if (item['submitted_at'] != null) Text('\u062a\u0627\u0631\u06cc\u062e \u0627\u0631\u0633\u0627\u0644: ${item['submitted_at']}'),
-              if (item['closed_at'] != null) Text('\u062a\u0627\u0631\u06cc\u062e \u062a\u0623\u06cc\u06cc\u062f\u200c\u0646\u0647\u0627\u06cc\u06cc: ${item['closed_at']}'),
-              if (item['reporter']?['name'] != null) Text('\u062b\u0628\u062a\u200c\u06a9\u0646\u0646\u062f\u0647: ${item['reporter']['name']}'),
-              if (item['assigned_group']?['name'] != null) Text('\u06af\u0631\u0648\u0647 \u0645\u0633\u0626\u0648\u0644: ${item['assigned_group']['name']}'),
-            ]))),
-            if (beforePhotos.isNotEmpty) ...[
-              const _SectionTitle('عکس‌های قبل از تعمیر'),
-              _PhotoGallery(photos: beforePhotos, token: ref.watch(sessionProvider).token),
-            ],
-            const _SectionTitle('عملیات تعمیراتی'),
-            if (operations.isEmpty) Card(child: ListTile(leading: const Icon(Icons.info_outline), title: const Text('\u0647\u0646\u0648\u0632 \u0639\u0645\u0644\u06cc\u0627\u062a\u06cc \u0628\u0631\u0627\u06cc \u0627\u06cc\u0646 \u067e\u0631\u0648\u0646\u062f\u0647 \u062b\u0628\u062a \u0646\u0634\u062f\u0647.'))),
-            ...operations.map((operation) => Card(child: ExpansionTile(
-              title: Text(operation['category']?.toString() ?? operation['operation_category']?['title']?.toString() ?? '\u0639\u0645\u0644\u06cc\u0627\u062a ${operation['id']}'),
-              subtitle: Text('${_status(operation['status'])}  •  ${operation['date'] ?? operation['operation_date'] ?? ''}'),
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              children: [
-                Align(alignment: AlignmentDirectional.centerStart, child: Text(operation['description']?.toString() ?? '')),
-                if (operation['created_by'] != null) Align(alignment: AlignmentDirectional.centerStart, child: Text('\u062b\u0628\u062a\u200c\u06a9\u0646\u0646\u062f\u0647 \u0639\u0645\u0644\u06cc\u0627\u062a: ${operation['created_by']}')),
-                for (final reviewer in List<Map<String, dynamic>>.from((operation['reviewers'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map))))
-                  ListTile(dense: true, leading: const Icon(Icons.fact_check_outlined), title: Text('${reviewer['name']} — ${_status(reviewer['status'])}'), subtitle: Text('${reviewer['comment'] ?? ''} ${reviewer['approved_at'] ?? ''}')),
-                for (final material in List<Map<String, dynamic>>.from((operation['materials'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map))))
-                  ListTile(dense: true, title: Text(material['title'].toString()), trailing: Text('${material['qty']} ${material['unit'] ?? ''}')),
-                if ((operation['photos'] as List? ?? const []).isNotEmpty)
-                  _PhotoGallery(photos: List<Map<String, dynamic>>.from((operation['photos'] as List).map((e) => Map<String, dynamic>.from(e as Map))), token: ref.watch(sessionProvider).token),
-                if (canEdit && ['draft', 'need_revision'].contains(operation['status']))
-                  Align(alignment: AlignmentDirectional.centerEnd, child: TextButton.icon(onPressed: () => _editOperation(operation), icon: const Icon(Icons.edit_outlined), label: const Text('\u0648\u06cc\u0631\u0627\u06cc\u0634 \u0639\u0645\u0644\u06cc\u0627\u062a'))),
-              ],
-            ))),
-            if (operations.isNotEmpty) _MaterialSummary(operations: operations),
-            if (canEdit) ...[
-              const SizedBox(height: 10),
-              OutlinedButton.icon(onPressed: _addOperation, icon: const Icon(Icons.add), label: const Text('\u0627\u0641\u0632\u0648\u062f\u0646 \u0639\u0645\u0644\u06cc\u0627\u062a')),
-              if (operations.isNotEmpty) FilledButton.icon(onPressed: _submitting ? null : _submitForReview, icon: _submitting ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send), label: Text(_submitting ? '\u062f\u0631 \u062d\u0627\u0644 \u0627\u0631\u0633\u0627\u0644...' : '\u0627\u0631\u0633\u0627\u0644 \u0628\u0631\u0627\u06cc \u062a\u0623\u06cc\u06cc\u062f')),
-            ],
-            if (item['last_editor']?['name'] != null) Text('\u0622\u062e\u0631\u06cc\u0646 \u0648\u06cc\u0631\u0627\u06cc\u0634: ${item['last_editor']['name']}'),
-          ]);
-        },
-      ),
-    ),
-  );
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text('تعمیرات علمک ${_case?['riser']?['r_giscode'] ?? widget.caseId}'),
+            actions: [IconButton(onPressed: () => setState(() => _loading = _load()), icon: const Icon(Icons.refresh))],
+          ),
+          body: FutureBuilder<void>(
+            future: _loading,
+            builder: (context, snapshot) {
+              if (snapshot.hasError && _case == null) return _errorView(snapshot.error);
+              if (_case == null) return const Center(child: CircularProgressIndicator());
+              return _editor();
+            },
+          ),
+          bottomNavigationBar: _case == null ? null : _actionBar(),
+        ),
+      );
 
-  Widget _failure(Object? error) => Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-    Text(error is DioException ? ApiClient.messageFrom(error) ?? '\u062f\u0631\u06cc\u0627\u0641\u062a \u067e\u0631\u0648\u0646\u062f\u0647 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f.' : '\u062f\u0631\u06cc\u0627\u0641\u062a \u067e\u0631\u0648\u0646\u062f\u0647 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062f.'),
+  Widget _editor() {
+    final status = '${_case!['status'] ?? ''}';
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 128),
+      children: [
+        if (_pendingLocal) const _InfoBanner('تغییرات در صف آفلاین هستند؛ ذخیره سرور هنوز تأیید نشده است.'),
+        if (status == 'returned') _InfoBanner('پرونده برای اصلاح برگشته است: ${_case!['return_reason'] ?? _case!['returned_reason'] ?? 'دلیل برگشت در پرونده ثبت شده است.'}'),
+        _headerCard(),
+        const SizedBox(height: 12),
+        _casePhotosCard(),
+        const SizedBox(height: 18),
+        Row(children: [const Expanded(child: Text('عملیات تعمیراتی', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold))), Chip(label: Text('${_operations.length} عملیات'))]),
+        const SizedBox(height: 8),
+        if (_operations.isEmpty) const _EmptyCard(text: 'هنوز عملیاتی برای این پرونده ثبت نشده است.'),
+        for (var index = 0; index < _operations.length; index++) _operationCard(index, _operations[index]),
+        const SizedBox(height: 10),
+        if (_canEdit) OutlinedButton.icon(onPressed: _addOperation, icon: const Icon(Icons.add_circle_outline), label: const Text('افزودن عملیات جدید')),
+        if (_referencesError != null) _InfoBanner(_referencesError!),
+      ],
+    );
+  }
+
+  Widget _headerCard() => Card(child: Padding(padding: const EdgeInsets.all(16), child: Wrap(spacing: 10, runSpacing: 8, children: [
+        Text('کد علمک: ${_case!['riser']?['r_giscode'] ?? _case!['riser_id'] ?? '-'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        Chip(label: Text(_status(_case!['status']))),
+        Chip(avatar: const Icon(Icons.inventory_2_outlined, size: 18), label: Text('${_operations.fold<int>(0, (sum, op) => sum + op.materials.length)} مصالح')),
+        Chip(avatar: Icon(ref.watch(sessionProvider).offline ? Icons.cloud_off : Icons.cloud_done, size: 18), label: Text(ref.watch(sessionProvider).offline ? 'آفلاین' : 'متصل')),
+      ])));
+
+  Widget _casePhotosCard() {
+    final before = _photos.where((photo) => photo['type'] == 'before').firstOrNull;
+    final after = _photos.where((photo) => photo['type'] == 'after').firstOrNull;
+    return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('تصاویر پرونده', style: TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 10),
+      Row(children: [Expanded(child: _casePhotoTile('before', 'قبل از تعمیر', before, _beforePhoto)), const SizedBox(width: 10), Expanded(child: _casePhotoTile('after', 'بعد از تعمیر', after, _afterPhoto))]),
+    ])));
+  }
+
+  Widget _casePhotoTile(String type, String title, Map<String, dynamic>? existing, XFile? local) => InkWell(
+        onTap: _canEdit ? () => _pickCasePhoto(type) : null,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(height: 120, decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(14)), clipBehavior: Clip.antiAlias, child: Stack(fit: StackFit.expand, children: [
+          if (local != null) Image.file(File(local.path), fit: BoxFit.cover)
+          else if (existing?['url'] != null) Image.network('${existing!['url']}', fit: BoxFit.cover, headers: _authHeaders(), errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined))
+          else const Center(child: Icon(Icons.photo_outlined, size: 34)),
+          Positioned(bottom: 0, left: 0, right: 0, child: ColoredBox(color: Colors.black54, child: Padding(padding: const EdgeInsets.all(6), child: Text(title, style: const TextStyle(color: Colors.white))))),
+        ])));
+
+  Widget _operationCard(int index, OperationDraft operation) {
+    final category = _categories.firstWhere((item) => int.tryParse('${item['id']}') == operation.categoryId, orElse: () => <String, dynamic>{});
+    final validation = operation.validate();
+    final active = _activeIndex == index;
+    return Card(margin: const EdgeInsets.only(bottom: 10), color: active ? Theme.of(context).colorScheme.primaryContainer.withOpacity(.45) : null, child: Column(children: [
+      InkWell(onTap: () => setState(() => _activeIndex = index), borderRadius: BorderRadius.circular(18), child: Padding(padding: const EdgeInsets.fromLTRB(14, 12, 14, 8), child: Row(children: [
+        CircleAvatar(child: Text('${index + 1}')), const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(category['title']?.toString() ?? (operation.categoryId == null ? 'نوع عملیات انتخاب نشده' : 'عملیات ${operation.categoryId}'), style: const TextStyle(fontWeight: FontWeight.bold)), Text('${operation.materials.length} مصالح • ${_status(operation.status)}')])),
+        if (validation != null) Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+        if (_canEdit) IconButton(tooltip: 'حذف عملیات', onPressed: () => _removeOperation(index), icon: const Icon(Icons.delete_outline)),
+      ]))),
+      if (active) _operationDetails(operation),
+    ]));
+  }
+
+  Widget _operationDetails(OperationDraft operation) => Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 14), child: Column(children: [
+    DropdownButtonFormField<int>(value: operation.categoryId, decoration: const InputDecoration(labelText: 'نوع عملیات'), items: _categories.map((item) => DropdownMenuItem(value: int.tryParse('${item['id']}'), child: Text('${item['title']}'))).toList(), onChanged: _canEdit ? (value) { setState(() { operation.categoryId = value; _dirty = true; }); } : null),
     const SizedBox(height: 10),
-    FilledButton(onPressed: () => setState(_load), child: const Text('\u062a\u0644\u0627\u0634 \u0645\u062c\u062f\u062f')),
+    TextFormField(initialValue: operation.description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'توضیحات'), onChanged: _canEdit ? (value) { operation.description = value; _markDirty(); } : null),
+    const SizedBox(height: 10),
+    Align(alignment: AlignmentDirectional.centerStart, child: OutlinedButton.icon(onPressed: _canEdit ? () => _selectMaterials(operation) : null, icon: const Icon(Icons.playlist_add), label: Text('انتخاب مصالح (${operation.materials.length})'))),
+    for (final material in operation.materials.values) _materialRow(operation, material),
+    if (operation.validate() != null) Align(alignment: AlignmentDirectional.centerStart, child: Padding(padding: const EdgeInsets.only(top: 8), child: Text(operation.validate()!, style: TextStyle(color: Theme.of(context).colorScheme.error)))),
   ]));
-}
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(text, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)));
+  Widget _materialRow(OperationDraft operation, MaterialDraft material) => Card(key: ValueKey('${operation.clientUuid}-${material.id}'), color: Theme.of(context).colorScheme.surface, child: Padding(padding: const EdgeInsets.all(8), child: Row(children: [
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(material.title, style: const TextStyle(fontWeight: FontWeight.w600)), if (material.unit.isNotEmpty) Text('واحد: ${material.unit}', style: Theme.of(context).textTheme.bodySmall)])),
+    SizedBox(width: 110, child: TextFormField(initialValue: material.quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'مقدار', suffixText: material.unit.isEmpty ? null : material.unit), onChanged: _canEdit ? (value) { material.quantity = value; _markDirty(); } : null)),
+    if (_canEdit) IconButton(onPressed: () => setState(() { operation.materials.remove(material.id); _dirty = true; }), icon: const Icon(Icons.close)),
+  ])));
+
+  Widget _actionBar() => SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 10), child: Row(children: [
+    Expanded(child: FilledButton.icon(onPressed: _canEdit && !_busy ? _save : null, icon: const Icon(Icons.save_outlined), label: const Text('ذخیره تعمیرات'))), const SizedBox(width: 10),
+    Expanded(child: OutlinedButton.icon(onPressed: _canEdit && !_busy ? _submitForReview : null, icon: const Icon(Icons.send_outlined), label: const Text('ارسال برای تأیید رئیس'))),
+  ])));
+
+  Widget _errorView(Object? error) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(ApiClient.messageFrom(error) ?? 'دریافت پرونده انجام نشد.'), const SizedBox(height: 12), FilledButton(onPressed: () => setState(() => _loading = _load()), child: const Text('تلاش مجدد'))])));
+
+  Map<String, String> _authHeaders() => {if (ref.read(sessionProvider).token != null) 'Authorization': 'Bearer ${ref.read(sessionProvider).token}'};
 }
 
 class _InfoBanner extends StatelessWidget {
   const _InfoBanner(this.text);
   final String text;
   @override
-  Widget build(BuildContext context) => Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Theme.of(context).colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(12)), child: Text(text, style: const TextStyle(height: 1.4)));
+  Widget build(BuildContext context) => Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Theme.of(context).colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(14)), child: Text(text, style: const TextStyle(height: 1.4)));
 }
 
-class _MaterialSummary extends StatelessWidget {
-  const _MaterialSummary({required this.operations});
-  final List<Map<String, dynamic>> operations;
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.text});
+  final String text;
   @override
-  Widget build(BuildContext context) {
-    final totals = aggregateCaseMaterials(operations);
-    return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('\u062c\u0645\u0639 \u06a9\u0644 \u0645\u0635\u0627\u0644\u062d \u0645\u0635\u0631\u0641\u06cc', style: TextStyle(fontWeight: FontWeight.bold)),
-      for (final entry in totals) ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text('${entry['title']}'), trailing: Text('${entry['qty']} ${entry['unit']}')),
-      if (totals.isEmpty) const Text('\u0645\u0635\u0644\u062d\u06cc \u062b\u0628\u062a \u0646\u0634\u062f\u0647 \u0627\u0633\u062a.'),
-    ])));
-  }
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(18), child: Text(text)));
 }
 
-class _PhotoGallery extends StatelessWidget {
-  const _PhotoGallery({required this.photos, required this.token});
-  final List<Map<String, dynamic>> photos;
-  final String? token;
-  @override
-  Widget build(BuildContext context) => SizedBox(height: 104, child: ListView(scrollDirection: Axis.horizontal, children: photos.map((photo) => Padding(
-    padding: const EdgeInsetsDirectional.only(end: 8),
-    child: ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(photo['url'].toString(), width: 104, height: 104, fit: BoxFit.cover, headers: {if (token != null) 'Authorization': 'Bearer $token'}, errorBuilder: (_, _, _) => const SizedBox(width: 104, child: Icon(Icons.broken_image_outlined)))),
-  )).toList()));
-}
-
-String _status(Object? value) => switch (value) {
-  'open' => '\u0646\u06cc\u0627\u0632\u0645\u0646\u062f \u062a\u0639\u0645\u06cc\u0631',
-  'in_progress' => '\u062f\u0631 \u062d\u0627\u0644 \u062a\u0639\u0645\u06cc\u0631',
-  'submitted' || 'submitOperation' => '\u062f\u0631 \u0627\u0646\u062a\u0638\u0627\u0631 \u062a\u0623\u06cc\u06cc\u062f',
-  'returned' || 'need_revision' => '\u0628\u0631\u06af\u0634\u062a\u06cc \u0628\u0631\u0627\u06cc \u0627\u0635\u0644\u0627\u062d',
-  'completed' || 'approved' => '\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f\u0647',
-  'draft' => '\u067e\u06cc\u0634\u200c\u0646\u0648\u06cc\u0633',
-  _ => value?.toString() ?? '\u0646\u0627\u0645\u0634\u062e\u0635',
-};
+String _status(Object? value) => switch ('$value') {
+      'open' => 'باز',
+      'in_progress' => 'در حال تعمیر',
+      'submitted' => 'در انتظار تأیید رئیس',
+      'returned' => 'برگشتی برای اصلاح',
+      'completed' => 'تکمیل‌شده',
+      'need_revision' => 'نیازمند اصلاح',
+      'draft' => 'پیش‌نویس',
+      _ => '${value ?? 'نامشخص'}',
+    };
