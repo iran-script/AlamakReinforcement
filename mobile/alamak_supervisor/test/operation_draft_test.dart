@@ -11,7 +11,7 @@ void main() {
       },
     );
     expect(operation.validate(), isNull);
-    expect(operation.materials.single.value.numericQuantity, 2.5);
+    expect(operation.materials.values.single.numericQuantity, 2.5);
   });
 
   test('uses real material ids and prevents duplicate material rows by map key', () {

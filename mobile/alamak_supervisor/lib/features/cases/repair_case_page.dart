@@ -339,7 +339,7 @@ class _RepairCasePageState extends ConsumerState<RepairCasePage> {
     final category = _categories.firstWhere((item) => int.tryParse('${item['id']}') == operation.categoryId, orElse: () => <String, dynamic>{});
     final validation = operation.validate();
     final active = _activeIndex == index;
-    return Card(margin: const EdgeInsets.only(bottom: 10), color: active ? Theme.of(context).colorScheme.primaryContainer.withOpacity(.45) : null, child: Column(children: [
+    return Card(margin: const EdgeInsets.only(bottom: 10), color: active ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: .45) : null, child: Column(children: [
       InkWell(onTap: () => setState(() => _activeIndex = index), borderRadius: BorderRadius.circular(18), child: Padding(padding: const EdgeInsets.fromLTRB(14, 12, 14, 8), child: Row(children: [
         CircleAvatar(child: Text('${index + 1}')), const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(category['title']?.toString() ?? (operation.categoryId == null ? 'نوع عملیات انتخاب نشده' : 'عملیات ${operation.categoryId}'), style: const TextStyle(fontWeight: FontWeight.bold)), Text('${operation.materials.length} مصالح • ${_status(operation.status)}')])),
@@ -351,7 +351,7 @@ class _RepairCasePageState extends ConsumerState<RepairCasePage> {
   }
 
   Widget _operationDetails(OperationDraft operation) => Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 14), child: Column(children: [
-    DropdownButtonFormField<int>(value: operation.categoryId, decoration: const InputDecoration(labelText: 'نوع عملیات'), items: _categories.map((item) => DropdownMenuItem(value: int.tryParse('${item['id']}'), child: Text('${item['title']}'))).toList(), onChanged: _canEdit ? (value) { setState(() { operation.categoryId = value; _dirty = true; }); } : null),
+    DropdownButtonFormField<int>(initialValue: operation.categoryId, decoration: const InputDecoration(labelText: 'نوع عملیات'), items: _categories.map((item) => DropdownMenuItem(value: int.tryParse('${item['id']}'), child: Text('${item['title']}'))).toList(), onChanged: _canEdit ? (value) { setState(() { operation.categoryId = value; _dirty = true; }); } : null),
     const SizedBox(height: 10),
     TextFormField(initialValue: operation.description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'توضیحات'), onChanged: _canEdit ? (value) { operation.description = value; _markDirty(); } : null),
     const SizedBox(height: 10),

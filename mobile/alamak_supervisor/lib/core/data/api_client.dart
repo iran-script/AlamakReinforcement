@@ -15,7 +15,8 @@ class ApiClient {
 
   final Dio dio;
 
-  static String? messageFrom(Object error) {
+  static String? messageFrom(Object? error) {
+    if (error == null) return null;
     if (error is DioException) {
       final data = error.response?.data;
       if (data is Map && data['message'] is String) return data['message'] as String;

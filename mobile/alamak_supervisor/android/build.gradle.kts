@@ -11,6 +11,17 @@ allprojects {
     }
 }
 
+// Some older Flutter plugins declare their own buildscript repositories and
+// therefore do not inherit the repositories above. Keep the fallback mirrors
+// limited to Gradle buildscript resolution; they are never runtime endpoints.
+gradle.beforeProject {
+    buildscript.repositories {
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+    }
+}
+
 gradle.addProjectEvaluationListener(object : org.gradle.api.ProjectEvaluationListener {
     override fun beforeEvaluate(project: org.gradle.api.Project) = Unit
 
@@ -18,16 +29,16 @@ gradle.addProjectEvaluationListener(object : org.gradle.api.ProjectEvaluationLis
         project: org.gradle.api.Project,
         state: org.gradle.api.ProjectState,
     ) {
-        if (project.name == "flutter_secure_storage") {
-            // flutter_secure_storage 9.2.4 pins compileSdk 34. This build has SDK 36
-            // installed, while SDK Manager cannot fetch platform 34 from Google.
-            // Use the installed compile platform; min/target SDK remain unchanged.
-            val androidExtension = project.extensions.getByName("android")
+        val androidExtension = project.extensions.findByName("android")
+        if (androidExtension != null) {
+            // Several cached Flutter plugins pin older compileSdk values. This
+            // machine has only platform android-37.0 installed; compileSdk is a
+            // build-time API surface and does not change minSdk/targetSdk.
             val compileSdkSetter = androidExtension.javaClass.methods.firstOrNull {
                 it.name == "setCompileSdk" &&
                     it.parameterTypes.contentEquals(arrayOf(java.lang.Integer::class.java))
             } ?: error("Cannot find Android compileSdk setter for ${project.name}")
-            compileSdkSetter.invoke(androidExtension, 36)
+            compileSdkSetter.invoke(androidExtension, 37)
         }
     }
 })

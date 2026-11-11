@@ -4,7 +4,7 @@ Android source for the field supervisor client. The Laravel backend remains in t
 
 ## Build
 
-Requires Flutter 3.47 / Dart 3.13, Android SDK 37 and JDK 21. Dependencies are pinned in `pubspec.lock`.
+Requires Flutter 3.44.2 / Dart 3.12.2, Android SDK 37 and a supported JDK 17+ (the current build uses Android Studio JBR 25). Dependencies are pinned in `pubspec.lock`.
 
 ```powershell
 flutter pub get

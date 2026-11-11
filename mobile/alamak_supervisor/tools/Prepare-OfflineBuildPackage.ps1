@@ -80,11 +80,11 @@ function Add-VerifiedFile {
 
 try {
     $javaVersion = (& (Join-Path $javaRoot 'bin\java.exe') -version 2>&1 | Out-String)
-    if ($javaVersion -notmatch 'version "21\.') { throw "Java 21 is required. Detected: $javaVersion" }
+    if ($javaVersion -notmatch 'version "(17|21|25)\.') { throw "JDK 17, 21, or 25 is required. Detected: $javaVersion" }
     $flutterMachine = (& $flutterCommand --version --machine | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to read Flutter version.' }
-    if ($flutterMachine.frameworkVersion -ne '3.47.0') {
-        throw "Flutter 3.47.0 is required for this package; detected $($flutterMachine.frameworkVersion)."
+    if ($flutterMachine.frameworkVersion -ne '3.44.2') {
+        throw "Flutter 3.44.2 is required for this package; detected $($flutterMachine.frameworkVersion)."
     }
 
     $sdkRoot = $env:ANDROID_SDK_ROOT

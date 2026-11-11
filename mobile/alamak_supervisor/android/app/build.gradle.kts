@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "ir.alamak.alamak_supervisor"
-    compileSdk = flutter.compileSdkVersion
+    // The installed SDK contains platform android-37.0 (not android-36).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
