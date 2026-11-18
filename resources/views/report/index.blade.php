@@ -3,6 +3,7 @@
 @section('title', 'گزارشات')
 
 @section('content')
+    @if(session('error'))<div class="alert alert-danger" role="alert">{{ session('error') }}</div>@endif
     <script src="{{ asset('js/jquery.js') }}"></script>
     <div class="page-heading">
 

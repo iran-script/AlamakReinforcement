@@ -51,6 +51,11 @@ class ReportExport implements FromQuery, WithHeadings, WithMapping, ShouldAutoSi
             ->limit(5000);
     }
 
+    public function hasRows(): bool
+    {
+        return $this->query()->exists();
+    }
+
     public function headings(): array
     {
         $defaultColumns = $this->request->input('dataset') === 'materials'

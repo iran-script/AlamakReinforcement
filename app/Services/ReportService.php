@@ -13,10 +13,10 @@ use Illuminate\Validation\Rule;
 class ReportService
 {
 
-    public function generate(Request $request)
+    public function generate(Request $request, bool $forExport = false)
     {
         if ($request->input('dataset') === 'maintenance_cases') {
-            return $this->generateMaintenanceCases($request);
+            return $this->generateMaintenanceCases($request, $forExport);
         }
 
         $query = $this->operationsQuery($request)->with([
@@ -34,8 +34,9 @@ class ReportService
 
         $summaryQuery = clone $query;
         $total = (clone $summaryQuery)->reorder()->count('operations.id');
-        $operations = $query->paginate(100)->withQueryString();
-        $rows = $operations->getCollection();
+        $operationsPaginator = $query->paginate(100)->withQueryString();
+        $operations = $forExport ? $query->limit(5000)->get() : $operationsPaginator->getCollection();
+        $rows = $operations;
         $statusCounts = (clone $summaryQuery)->reorder()->select('status')->selectRaw('COUNT(*) AS aggregate')->groupBy('status')->pluck('aggregate', 'status');
         $monthRows = (clone $summaryQuery)->reorder()->whereNotNull('operation_date')
             ->setEagerLoads([])
@@ -61,19 +62,24 @@ class ReportService
         $selectedColumns = $request->input('columns', array_keys($columnLabels));
         $grouping = $this->groupedSummary($summaryQuery, $request->input('group_by'), $request->user());
         $materialPaginator = null;
+        $materialRows = null;
         if ($dataset === 'materials') {
-            $materialPaginator = \Illuminate\Support\Facades\DB::table('operation_materials')
+            $materialQuery = \Illuminate\Support\Facades\DB::table('operation_materials')
                 ->join('materials', 'materials.id', '=', 'operation_materials.material_id')
                 ->whereIn('operation_materials.operation_id', (clone $summaryQuery)->reorder()->select('operations.id'))
                 ->select('materials.id as material_id', 'materials.title as material_title', 'materials.unit')
                 ->selectRaw('SUM(operation_materials.qty) AS qty')
                 ->groupBy('materials.id', 'materials.title', 'materials.unit')
-                ->orderBy('materials.title')->orderBy('materials.unit')->paginate(100)->withQueryString();
+                ->orderBy('materials.title')->orderBy('materials.unit');
+            $materialPaginator = $forExport ? null : $materialQuery->paginate(100)->withQueryString();
+            $materialRows = $forExport ? $materialQuery->limit(5000)->get() : $materialPaginator->getCollection();
         }
 
 
 
         return [
+
+            'meta' => $this->reportMeta($request, $dataset),
 
             'cards' => [
                 'total' => $total,
@@ -87,16 +93,16 @@ class ReportService
             'dataset' => $dataset,
             'columns' => collect($selectedColumns)->map(fn ($key) => ['key' => $key, 'label' => $columnLabels[$key]])->all(),
             'table' => $dataset === 'materials'
-                ? $materialPaginator->getCollection()->map(fn ($row) => array_intersect_key([
+                ? $materialRows->map(fn ($row) => array_intersect_key([
                     'material_title' => $row->material_title, 'unit' => $row->unit, 'qty' => (float) $row->qty,
                 ], array_flip($selectedColumns)))->all()
                 : $this->table($rows, $selectedColumns),
             'grouping' => $grouping,
             'pagination' => [
-                'current_page' => ($materialPaginator ?? $operations)->currentPage(),
-                'last_page' => ($materialPaginator ?? $operations)->lastPage(),
-                'per_page' => ($materialPaginator ?? $operations)->perPage(),
-                'total' => ($materialPaginator ?? $operations)->total(),
+                'current_page' => $forExport ? 1 : ($materialPaginator ?? $operationsPaginator)->currentPage(),
+                'last_page' => $forExport ? 1 : ($materialPaginator ?? $operationsPaginator)->lastPage(),
+                'per_page' => $forExport ? ($materialRows?->count() ?? $rows->count()) : ($materialPaginator ?? $operationsPaginator)->perPage(),
+                'total' => $total,
             ],
 
             'riserMaterials' => $this->riserMaterialSummary($rows),
@@ -220,17 +226,17 @@ class ReportService
             ->orderBy('maintenance_cases.id', $validated['direction'] ?? 'desc');
     }
 
-    private function generateMaintenanceCases(Request $request): array
+    private function generateMaintenanceCases(Request $request, bool $forExport = false): array
     {
         $query = $this->maintenanceCasesQuery($request);
         $total = (clone $query)->reorder()->count('maintenance_cases.id');
         $statusCounts = (clone $query)->reorder()->setEagerLoads([])->select([])
             ->selectRaw('maintenance_cases.status, COUNT(*) AS aggregate')->groupBy('maintenance_cases.status')
             ->pluck('aggregate', 'status');
-        $paginator = $query->paginate(100)->withQueryString();
+        $paginator = $forExport ? null : $query->paginate(100)->withQueryString();
         $columnLabels = $this->columnLabels('maintenance_cases');
         $selected = $request->input('columns', array_keys($columnLabels));
-        $rows = $paginator->getCollection()->map(function ($case) use ($selected): array {
+        $rows = ($forExport ? $query->limit(5000)->get() : $paginator->getCollection())->map(function ($case) use ($selected): array {
             $row = [
                 'riser' => $case->riser?->r_giscode ?: $case->riser?->giscode,
                 'organization' => $case->organization_name,
@@ -249,7 +255,7 @@ class ReportService
                 'repair_count' => (int) $case->repair_count,
             ];
             return array_intersect_key($row, array_flip($selected));
-        })->all();
+        });
 
         $groupBy = $request->input('group_by');
         $groupExpressions = [
@@ -270,6 +276,7 @@ class ReportService
         }
 
         return [
+            'meta' => $this->reportMeta($request, 'maintenance_cases'),
             'dataset' => 'maintenance_cases',
             'cards' => [
                 'total' => $total,
@@ -280,9 +287,14 @@ class ReportService
                 'open' => (int) ($statusCounts['open'] ?? 0),
             ],
             'columns' => collect($selected)->map(fn ($key) => ['key' => $key, 'label' => $columnLabels[$key]])->all(),
-            'table' => $rows,
+            'table' => $rows->all(),
             'grouping' => $grouping,
-            'pagination' => ['current_page' => $paginator->currentPage(), 'last_page' => $paginator->lastPage(), 'per_page' => $paginator->perPage(), 'total' => $paginator->total()],
+            'pagination' => [
+                'current_page' => $forExport ? 1 : $paginator->currentPage(),
+                'last_page' => $forExport ? 1 : $paginator->lastPage(),
+                'per_page' => $forExport ? $rows->count() : $paginator->perPage(),
+                'total' => $total,
+            ],
             'materialUsage' => [], 'riserMaterials' => [],
             'monthChart' => ['labels' => [], 'data' => []], 'statusChart' => ['labels' => [], 'data' => []],
             'priorityChart' => ['labels' => [], 'data' => []], 'contractorChart' => ['labels' => [], 'data' => []],
@@ -372,6 +384,14 @@ class ReportService
             ->orderBy('operations.id', $validated['direction'] ?? 'desc');
 
         return $query;
+    }
+
+    private function reportMeta(Request $request, string $dataset): array
+    {
+        $titles = ['operations'=>'گزارش عملیات', 'materials'=>'گزارش مصرف مصالح', 'maintenance_cases'=>'گزارش پرونده‌های تعمیرات'];
+        $filters = collect(['from'=>'از تاریخ','to'=>'تا تاریخ','status'=>'وضعیت','priority'=>'اولویت','zone'=>'زون','group_user_id'=>'گروه تعمیراتی','supervisor'=>'ناظر','operation_category'=>'نوع عملیات','case_status'=>'وضعیت پرونده'])
+            ->mapWithKeys(fn ($label, $key) => filled($request->input($key)) ? [$label => $request->input($key)] : [])->all();
+        return ['company'=>'شرکت گاز استان مرکزی','title'=>$titles[$dataset] ?? 'گزارش مدیریتی','generated_at'=>now()->format('Y/m/d H:i'),'prepared_by'=>$request->user()?->name ?? 'سامانه','from'=>$request->input('from'),'to'=>$request->input('to'),'filters'=>$filters];
     }
 
     private function columnLabels(string $dataset = 'operations'): array

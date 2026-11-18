@@ -407,7 +407,9 @@ class LegacySecurityAndOperationsTest extends TestCase
         $category = OperationCategory::create(['title' => 'Repair', 'code' => 'repair-'.uniqid(), 'is_active' => true]);
         $this->operation($riser, $category, $allowed, 'export-operation');
 
-        $this->actingAs($allowed)->get('/reports/pdf?columns%5B%5D=riser&columns%5B%5D=status&group_by=status')->assertOk();
+        $pdfResponse = $this->actingAs($allowed)->get('/reports/pdf?columns%5B%5D=riser&columns%5B%5D=status&group_by=status');
+        $pdfResponse->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF', $pdfResponse->getContent());
         $this->actingAs($allowed)->get('/reports/excel?columns%5B%5D=riser&columns%5B%5D=status&group_by=status')
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

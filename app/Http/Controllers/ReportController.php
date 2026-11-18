@@ -15,6 +15,9 @@ use App\Models\SavedReport;
 use App\Models\Operation;
 use Illuminate\Support\Facades\DB;
 use App\Services\AuditLogger;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+use App\Services\ReportPdfService;
 
 
 
@@ -25,7 +28,11 @@ class ReportController extends Controller
     protected ReportService $reportService;
 
 
-    public function __construct(ReportService $reportService, private AuditLogger $audit)
+    public function __construct(
+        ReportService $reportService,
+        private AuditLogger $audit,
+        private ReportPdfService $reportPdf,
+    )
     {
         $this->reportService = $reportService;
     }
@@ -106,27 +113,27 @@ class ReportController extends Controller
 
     public function excel(Request $request)
     {
+        try {
         $this->audit->record('report.export_excel', null, null, null, ['filters' => $request->only([
             'from', 'to', 'zone', 'operation_category', 'status', 'priority', 'contract', 'contractor',
             'supervisor', 'group_user_id', 'case_status', 'material', 'dataset', 'columns', 'sort', 'direction', 'group_by',
         ])]);
 
-        return Excel::download(
-
-            new ReportExport($request),
-
-            'Report.xlsx'
-
-        );
+        $export = new ReportExport($request);
+        if (! $export->hasRows()) return back()->with('error', 'برای فیلترهای انتخاب‌شده داده‌ای برای خروجی Excel وجود ندارد.');
+        return Excel::download($export, 'Report.xlsx');
+        } catch (Throwable $exception) {
+            Log::error('Report Excel export failed', ['exception'=>get_class($exception), 'message'=>mb_substr($exception->getMessage(), 0, 1000), 'user_id'=>$request->user()?->id]);
+            return back()->withInput()->with('error', 'تهیه خروجی Excel انجام نشد. لطفاً فیلترها را بررسی و دوباره تلاش کنید.');
+        }
     }
 
 
 
     public function pdf(Request $request)
     {
-
-        $data = $this->reportService
-            ->generate($request);
+        try {
+        $data = $this->reportService->generate($request, true);
 
         $this->audit->record('report.export_pdf', null, null, null, ['filters' => $request->only([
             'from', 'to', 'zone', 'operation_category', 'status', 'priority', 'contract', 'contractor',
@@ -134,10 +141,11 @@ class ReportController extends Controller
         ])]);
 
 
-        return view(
-            'report.pdf',
-            compact('data')
-        );
+        return $this->reportPdf->download($data, 'alamak-report-'.now()->format('Ymd-His').'.pdf');
+        } catch (Throwable $exception) {
+            Log::error('Report PDF generation failed', ['exception'=>get_class($exception), 'message'=>mb_substr($exception->getMessage(), 0, 1000), 'user_id'=>$request->user()?->id]);
+            return back()->withInput()->with('error', 'تهیه گزارش PDF انجام نشد. لطفاً فیلترها را بررسی و دوباره تلاش کنید.');
+        }
     }
 
     public function storeSaved(Request $request)
