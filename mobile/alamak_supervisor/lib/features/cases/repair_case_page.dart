@@ -13,6 +13,7 @@ import 'case_repository.dart';
 import 'image_source_sheet.dart';
 import 'material_picker_sheet.dart';
 import 'operation_draft.dart';
+import 'repair_form_fields.dart';
 
 class RepairCasePage extends ConsumerStatefulWidget {
   const RepairCasePage({super.key, required this.caseId});
@@ -351,9 +352,23 @@ class _RepairCasePageState extends ConsumerState<RepairCasePage> {
   }
 
   Widget _operationDetails(OperationDraft operation) => Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 14), child: Column(children: [
-    DropdownButtonFormField<int>(initialValue: operation.categoryId, decoration: const InputDecoration(labelText: 'نوع عملیات'), items: _categories.map((item) => DropdownMenuItem(value: int.tryParse('${item['id']}'), child: Text('${item['title']}'))).toList(), onChanged: _canEdit ? (value) { setState(() { operation.categoryId = value; _dirty = true; }); } : null),
+    RepairField(child: DropdownButtonFormField<int>(
+      isExpanded: true,
+      isDense: false,
+      initialValue: operation.categoryId,
+      decoration: repairDecoration('نوع عملیات', hint: 'یک نوع عملیات انتخاب کنید'),
+      items: _categories.map((item) => DropdownMenuItem(value: int.tryParse('${item['id']}'), child: Text('${item['title']}'))).toList(),
+      onChanged: _canEdit ? (value) { setState(() { operation.categoryId = value; _dirty = true; }); } : null,
+    )),
     const SizedBox(height: 10),
-    TextFormField(initialValue: operation.description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'توضیحات'), onChanged: _canEdit ? (value) { operation.description = value; _markDirty(); } : null),
+    RepairField(child: TextFormField(
+      initialValue: operation.description,
+      minLines: 3,
+      maxLines: 5,
+      textInputAction: TextInputAction.newline,
+      decoration: repairDecoration('توضیحات عملیات', hint: 'توضیحات کوتاه را وارد کنید'),
+      onChanged: _canEdit ? (value) { operation.description = value; _markDirty(); } : null,
+    )),
     const SizedBox(height: 10),
     Align(alignment: AlignmentDirectional.centerStart, child: OutlinedButton.icon(onPressed: _canEdit ? () => _selectMaterials(operation) : null, icon: const Icon(Icons.playlist_add), label: Text('انتخاب مصالح (${operation.materials.length})'))),
     for (final material in operation.materials.values) _materialRow(operation, material),
@@ -362,7 +377,13 @@ class _RepairCasePageState extends ConsumerState<RepairCasePage> {
 
   Widget _materialRow(OperationDraft operation, MaterialDraft material) => Card(key: ValueKey('${operation.clientUuid}-${material.id}'), color: Theme.of(context).colorScheme.surface, child: Padding(padding: const EdgeInsets.all(8), child: Row(children: [
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(material.title, style: const TextStyle(fontWeight: FontWeight.w600)), if (material.unit.isNotEmpty) Text('واحد: ${material.unit}', style: Theme.of(context).textTheme.bodySmall)])),
-    SizedBox(width: 110, child: TextFormField(initialValue: material.quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: 'مقدار', suffixText: material.unit.isEmpty ? null : material.unit), onChanged: _canEdit ? (value) { material.quantity = value; _markDirty(); } : null)),
+    const SizedBox(width: 8),
+    SizedBox(width: 124, child: RepairField(child: TextFormField(
+      initialValue: material.quantity,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: repairDecoration('مقدار', suffixText: material.unit.isEmpty ? null : material.unit),
+      onChanged: _canEdit ? (value) { material.quantity = value; _markDirty(); } : null,
+    ))),
     if (_canEdit) IconButton(onPressed: () => setState(() { operation.materials.remove(material.id); _dirty = true; }), icon: const Icon(Icons.close)),
   ])));
 

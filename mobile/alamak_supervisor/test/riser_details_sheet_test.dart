@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:alamak_supervisor/features/map/riser_details_sheet.dart';
 
-Map<String, dynamic> details({List<Map<String, dynamic>> cases = const []}) => {
+Map<String, dynamic> details({List<Map<String, dynamic>> cases = const [], List<Map<String, dynamic>> operations = const []}) => {
   'riser': {'id': 41, 'r_giscode': 'GIS-41', 'status': 'open', 'latitude': 35.7, 'longitude': 51.4},
   'cases': cases,
-  'operations': <Object>[] ,
+  'operations': operations,
 };
 
 Widget host(Widget child) => MaterialApp(home: Scaffold(body: child));
@@ -82,5 +82,44 @@ void main() {
     await tester.pumpWidget(host(sheet));
     await tester.pumpAndSettle();
     expect(calls, 1);
+  });
+
+  testWidgets('shows operation materials with quantity and unit', (tester) async {
+    await tester.pumpWidget(host(RiserDetailsSheet(
+      riserId: 41,
+      loadDetails: (_) async => details(cases: [
+        {'id': 7, 'status': 'open', 'operations': [
+          {'category': 'Cable replacement', 'status': 'completed', 'date': '2026-11-14', 'materials': [
+            {'id': 4, 'title': 'Cable', 'unit': 'm', 'qty': '1.25'},
+          ]},
+        ]},
+      ]),
+      onCreateCase: (_) {}, onOpenCase: (_) {},
+    )));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Cable replacement'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Cable replacement'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cable'), findsOneWidget);
+    expect(find.text('1.25 m'), findsOneWidget);
+    expect(find.byType(ListTile), findsWidgets);
+  });
+
+  testWidgets('distinguishes an operation without materials from loading/error', (tester) async {
+    await tester.pumpWidget(host(RiserDetailsSheet(
+      riserId: 41,
+      loadDetails: (_) async => details(cases: [
+        {'id': 7, 'status': 'open', 'operations': [
+          {'category': 'Inspection', 'status': 'completed', 'materials': []},
+        ]},
+      ]),
+      onCreateCase: (_) {}, onOpenCase: (_) {},
+    )));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Inspection'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Inspection'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ListTile), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }

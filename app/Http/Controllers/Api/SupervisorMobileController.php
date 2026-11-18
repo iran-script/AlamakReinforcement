@@ -157,6 +157,7 @@ class SupervisorMobileController extends Controller
                     'url' => url('/api/v1/supervisor/photos/'.$image->id),
                 ])->values(),
             ])->values();
+        $currentCase = $cases->first();
 
         return response()->json([
             'riser' => [
@@ -170,6 +171,7 @@ class SupervisorMobileController extends Controller
                 'description' => $case->description, 'identified_at' => $case->identified_at,
                 'submitted_at' => $case->submitted_at, 'reporter' => $case->reporter?->name,
                 'group' => $case->assignedGroup?->name, 'operation_category' => $case->operationCategory?->title,
+                'materials_total' => $this->mobileMaterialsTotal($case->operations),
                 'operations' => $case->operations->map(fn (Operation $operation) => [
                     'id' => $operation->id, 'date' => $operation->operation_date, 'status' => $operation->status,
                     'description' => $operation->description, 'updated_at' => $operation->updated_at,
@@ -195,6 +197,7 @@ class SupervisorMobileController extends Controller
                 ])->values(),
             ])->values(),
             'operations' => $operations,
+            'materials_total' => $currentCase ? $this->mobileMaterialsTotal($currentCase->operations) : [],
         ]);
     }
 
@@ -220,6 +223,54 @@ class SupervisorMobileController extends Controller
                 'url' => url('/api/v1/supervisor/photos/'.$image->id),
             ])->values(),
         ]));
+    }
+
+    /** @param iterable<Operation> $operations */
+    private function mobileMaterialsTotal(iterable $operations): array
+    {
+        $totals = [];
+        foreach ($operations as $operation) {
+            if ($operation->trashed()) continue;
+            foreach ($operation->operationMaterial as $material) {
+                $unit = (string) ($material->unit ?? '');
+                $key = $material->getKey().'\x1f'.$unit;
+                $totals[$key] ??= [
+                    'material_id' => (int) $material->getKey(),
+                    'title' => $material->title,
+                    'unit' => $unit,
+                    'qty' => '0',
+                ];
+                $totals[$key]['qty'] = $this->addDecimalStrings(
+                    (string) $totals[$key]['qty'],
+                    (string) $material->pivot->qty,
+                );
+            }
+        }
+        return array_values($totals);
+    }
+
+    private function addDecimalStrings(string $left, string $right): string
+    {
+        [$leftWhole, $leftFraction] = array_pad(explode('.', trim($left), 2), 2, '');
+        [$rightWhole, $rightFraction] = array_pad(explode('.', trim($right), 2), 2, '');
+        $scale = max(strlen($leftFraction), strlen($rightFraction));
+        $leftDigits = ltrim($leftWhole, '+-').str_pad($leftFraction, $scale, '0');
+        $rightDigits = ltrim($rightWhole, '+-').str_pad($rightFraction, $scale, '0');
+        $leftDigits = str_pad($leftDigits, max(strlen($leftDigits), strlen($rightDigits)), '0', STR_PAD_LEFT);
+        $rightDigits = str_pad($rightDigits, strlen($leftDigits), '0', STR_PAD_LEFT);
+        $carry = 0;
+        $sum = '';
+        for ($index = strlen($leftDigits) - 1; $index >= 0; $index--) {
+            $digit = ((int) $leftDigits[$index]) + ((int) $rightDigits[$index]) + $carry;
+            $sum = ($digit % 10).$sum;
+            $carry = intdiv($digit, 10);
+        }
+        if ($carry > 0) $sum = $carry.$sum;
+        if ($scale === 0) return ltrim($sum, '0') ?: '0';
+        $sum = str_pad($sum, $scale + 1, '0', STR_PAD_LEFT);
+        $whole = ltrim(substr($sum, 0, -$scale), '0') ?: '0';
+        $fraction = rtrim(substr($sum, -$scale), '0');
+        return $fraction === '' ? $whole : "$whole.$fraction";
     }
 
     public function photo(Request $request, OperationImage $operationImage)

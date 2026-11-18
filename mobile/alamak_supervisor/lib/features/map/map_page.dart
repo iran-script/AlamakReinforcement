@@ -306,6 +306,7 @@ class _MapPageState extends ConsumerState<MapPage> {
             Navigator.pop(sheetContext);
             _openCaseFromMap(caseId);
           },
+          onShowMap: () => Navigator.pop(sheetContext),
           syncPending: _pendingRiserIds.contains(id),
         ),
       );

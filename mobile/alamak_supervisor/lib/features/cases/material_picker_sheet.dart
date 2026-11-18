@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'repair_form_fields.dart';
 
 /// Returns the selected material quantities when confirmed; null means canceled.
 Future<Map<int, String>?> showMaterialPicker(
@@ -223,18 +224,13 @@ class _MaterialPickerSheetState extends State<MaterialPickerSheet> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    RepairField(child: TextField(
                       key: const Key('material-search'),
                       controller: _search,
                       onChanged: (_) => setState(() {}),
                       textDirection: TextDirection.rtl,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'جست‌وجو براساس نام یا کد مصالح',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
+                      decoration: repairDecoration('جست‌وجوی مصالح', hint: 'نام یا کد مصالح'),
+                    )),
                     if (_categories.isNotEmpty) ...[
                       const SizedBox(height: 9),
                       SizedBox(
@@ -345,7 +341,7 @@ class _MaterialPickerSheetState extends State<MaterialPickerSheet> {
                                             56,
                                             10,
                                           ),
-                                      child: TextField(
+                                      child: RepairField(child: TextField(
                                         key: Key('material-quantity-$id'),
                                         controller: controller,
                                         keyboardType:
@@ -355,17 +351,11 @@ class _MaterialPickerSheetState extends State<MaterialPickerSheet> {
                                             ),
                                         inputFormatters: [
                                           FilteringTextInputFormatter.allow(
-                                            RegExp(r'[0-9٠-٩۰-۹.,]'),
+                                            RegExp(r'[0-9٠-٩۰-۹.,٫٬]'),
                                           ),
                                         ],
-                                        decoration: InputDecoration(
-                                          labelText: 'مقدار مصرف',
-                                          suffixText:
-                                              '${material['unit'] ?? ''}',
-                                          border: const OutlineInputBorder(),
-                                          isDense: true,
-                                        ),
-                                      ),
+                                        decoration: repairDecoration('مقدار مصرف', suffixText: '${material['unit'] ?? ''}'),
+                                      )),
                                     ),
                                 ],
                               ),
