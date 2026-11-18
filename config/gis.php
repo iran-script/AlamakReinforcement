@@ -4,6 +4,11 @@ return [
     'default_base_tile_url' => env('GIS_BASE_TILE_URL', '/tiles/{z}/{x}/{y}.png'),
     'default_attribution' => env('GIS_BASE_TILE_ATTRIBUTION'),
     'allowed_internal_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('GIS_ALLOWED_INTERNAL_HOSTS', ''))))),
+    'wms' => [
+        'allow_local_geoserver' => (bool) env('GIS_WMS_ALLOW_LOCAL_GEOSERVER', false),
+        'local_geoserver' => ['scheme' => 'http', 'host' => '127.0.0.1', 'port' => 8080, 'path_prefix' => '/geoserver/tamirat/wms'],
+        'max_response_bytes' => 8 * 1024 * 1024,
+    ],
 
     // برای افزودن لایه جدید، یک عضو با کلید یکتا به این آرایه اضافه کنید.
     // vector_tile به endpoint شامل {z}/{x}/{y} نیاز دارد.
