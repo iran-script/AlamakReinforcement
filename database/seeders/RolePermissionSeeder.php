@@ -22,6 +22,8 @@ class RolePermissionSeeder extends Seeder
             'dashboard.view',
 
             'map.view',
+            'wms.manage',
+            'wms.endpoint-approve',
 
             'zone.view',
             'zone.create',
@@ -130,7 +132,7 @@ class RolePermissionSeeder extends Seeder
                 ->whereIn('name', [
                     'user.view', 'user.create', 'user.edit', 'zone.view',
                     'dashboard.view', 'map.view', 'riser.view', 'operation.view',
-                    'operation.edit', 'operation.approve', 'maintenance.case.view', 'report.view',
+                    'operation.edit', 'operation.approve', 'maintenance.case.view', 'report.view', 'report.export',
                 ])
                 ->where('guard_name', 'web')
                 ->get()

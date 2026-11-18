@@ -116,6 +116,12 @@
         @media (max-width: 575.98px) { .maintenance-dialog { padding: 14px; max-height: 94vh; } .maintenance-footer { bottom: -14px; margin: 16px -14px -14px; padding: 12px 14px; } .maintenance-footer .btn { flex: 1; } }
         .maintenance-preview { display: flex; gap: 8px; flex-wrap: wrap; }
         .maintenance-preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
+        .wms-layer-panel { position:absolute; top:82px; right:18px; z-index:1001; width:min(360px, calc(100% - 36px)); max-height:calc(100% - 120px); overflow:auto; background:rgba(255,255,255,.98); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow-lg); padding:14px; display:none; }
+        .wms-layer-panel.is-open { display:block; }
+        .wms-layer-row { border-top:1px solid var(--border); padding:10px 0; }
+        .wms-layer-row:first-child { border-top:0; }
+        .wms-layer-row .form-range { width:100%; }
+        .wms-layer-error { color:#9f1239; background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:6px 8px; font-size:12px; }
 
         /* INFO PANEL */
         .info-panel {
@@ -229,6 +235,8 @@
                 </select>
             @endif
 
+            <button id="wmsLayersButton" type="button" class="btn btn-outline-primary btn-sm" aria-expanded="false"><i class="bi bi-layers"></i> لایه‌ها</button>
+
 
             <button id="btnHideZone" type="button" class="btn btn-outline-danger btn-sm" title="حذف  ترسیمات">
                 <i class="bi bi-scissors"></i>
@@ -264,6 +272,7 @@
 
         <!-- MAP -->
         <div id="map"></div>
+        <aside id="wmsLayerPanel" class="wms-layer-panel" dir="rtl" aria-label="پنل لایه‌ها"><div class="d-flex justify-content-between align-items-center mb-2"><strong>لایه‌های WMS</strong><button type="button" class="btn-close" id="wmsLayersClose" aria-label="بستن"></button></div><div id="wmsLayerList"><div class="small text-muted">در حال دریافت فهرست لایه‌ها…</div></div></aside>
 
         <!-- INFO -->
         <div class="info-panel">
@@ -473,6 +482,26 @@
                 maxZoom: baseMapDefinition.max_zoom
             })
         });
+
+        const wmsLayerObjects = new Map();
+        const wmsStorageKey = 'alamak:wms-layers:v1';
+        let wmsUserState = {};
+        try { wmsUserState = JSON.parse(localStorage.getItem(wmsStorageKey) || '{}') || {}; } catch (_) { wmsUserState = {}; }
+        function showWmsLayerError(definition, row) { row.querySelector('.wms-layer-error')?.remove(); const error=document.createElement('div'); error.className='wms-layer-error mt-2'; error.textContent='خطا در بارگذاری لایه؛ برای تلاش مجدد، لایه را خاموش و روشن کنید.'; row.append(error); }
+        function addWmsLayer(definition) {
+            const saved = wmsUserState[String(definition.id)] || {};
+            const layer = new ol.layer.Tile({ source: new ol.source.TileWMS({ url: definition.url, projection: definition.preferred_crs || 'EPSG:3857', params: {LAYERS: definition.layer_name, VERSION: definition.version || '1.3.0', FORMAT:'image/png', TRANSPARENT:true, STYLES:'', ...(definition.preferred_crs ? {CRS: definition.preferred_crs, SRS: definition.preferred_crs} : {})}, crossOrigin:'anonymous'}), opacity: saved.opacity ?? definition.opacity ?? 1, visible: saved.visible ?? definition.default_visible ?? false, zIndex: 20 });
+            layer.on('change:visible', () => { wmsUserState[String(definition.id)] = {...(wmsUserState[String(definition.id)] || {}), visible: layer.getVisible(), opacity: layer.getOpacity()}; localStorage.setItem(wmsStorageKey, JSON.stringify(wmsUserState)); });
+            wmsLayerObjects.set(String(definition.id), layer); map.addLayer(layer); layer.getSource().on('tileloaderror',()=>{const row=Array.from(document.querySelectorAll('.wms-layer-row')).find(item=>item.textContent.includes(definition.title)); if(row){row.querySelector('.wms-layer-error')?.remove(); const error=document.createElement('div'); error.className='wms-layer-error mt-2'; error.textContent='خطا در بارگذاری لایه؛ برای تلاش مجدد، لایه را خاموش و روشن کنید.'; row.append(error);}}); return layer;
+        }
+        function renderWmsLayers(payload) {
+            const list = document.getElementById('wmsLayerList'); list.replaceChildren();
+            if (!payload.services?.length) { list.innerHTML = '<div class="small text-muted">لایه WMS فعالی برای نمایش وجود ندارد.</div>'; return; }
+            payload.services.forEach(service => { const heading=document.createElement('div'); heading.className='fw-bold mb-1'; heading.textContent=service.name; list.append(heading); service.layers.forEach(definition => { const layer=addWmsLayer(definition); const row=document.createElement('div'); row.className='wms-layer-row'; const line=document.createElement('div'); line.className='d-flex justify-content-between align-items-center gap-2'; const label=document.createElement('label'); label.className='form-check mb-1 flex-grow-1'; const check=document.createElement('input'); check.type='checkbox'; check.className='form-check-input'; check.checked=layer.getVisible(); check.addEventListener('change',()=>layer.setVisible(check.checked)); label.append(check, document.createTextNode(' '+definition.title)); line.append(label); if(definition.legend_url){ const a=document.createElement('a'); a.href=definition.legend_url; a.target='_blank'; a.rel='noopener'; a.className='small'; a.textContent='Legend'; line.append(a); } row.append(line); const range=document.createElement('input'); range.type='range'; range.min=0; range.max=1; range.step=.05; range.value=layer.getOpacity(); range.className='form-range'; range.title='شفافیت'; range.addEventListener('input',()=>{layer.setOpacity(Number(range.value)); wmsUserState[String(definition.id)]={...(wmsUserState[String(definition.id)]||{}),opacity:layer.getOpacity(),visible:layer.getVisible()}; localStorage.setItem(wmsStorageKey,JSON.stringify(wmsUserState));}); row.append(range); list.append(row); }); });
+        }
+        fetch(@json(route('map.wms.layers')), {headers:{Accept:'application/json'}}).then(r=>r.ok?r.json():Promise.reject(r.status)).then(renderWmsLayers).catch(()=>{document.getElementById('wmsLayerList').innerHTML='<div class="small text-danger">فهرست لایه‌ها دریافت نشد.</div>';});
+        document.getElementById('wmsLayersButton').addEventListener('click',()=>{ const panel=document.getElementById('wmsLayerPanel'); const open=!panel.classList.contains('is-open'); panel.classList.toggle('is-open',open); document.getElementById('wmsLayersButton').setAttribute('aria-expanded',String(open)); });
+        document.getElementById('wmsLayersClose').addEventListener('click',()=>{document.getElementById('wmsLayerPanel').classList.remove('is-open'); document.getElementById('wmsLayersButton').setAttribute('aria-expanded','false');});
 
         @if($isLocal)
         document.getElementById('btnDemoRisers').addEventListener('click', async function() {

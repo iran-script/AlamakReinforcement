@@ -45,6 +45,7 @@ class MenuSeeder extends Seeder
             ['route' => 'platform.forms.index', 'title' => 'مدیریت فرم‌ها', 'icon' => 'bi bi-ui-checks-grid'],
             ['route' => 'platform.workflows.index', 'title' => 'مدیریت گردش‌کار', 'icon' => 'bi bi-diagram-3'],
             ['route' => 'settings.gis.edit', 'title' => 'تنظیمات نقشه GIS', 'icon' => 'bi bi-map'],
+            ['route' => 'settings.gis.wms', 'title' => 'مدیریت لایه‌های WMS', 'icon' => 'bi bi-layers', 'permission' => 'wms.manage'],
         ]],
     ];
 

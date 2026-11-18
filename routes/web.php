@@ -26,6 +26,9 @@ use App\Http\Controllers\ServicePointController;
 use App\Http\Controllers\TileController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ZoneController;
+use App\Http\Controllers\WmsController;
+use App\Http\Controllers\WmsEndpointController;
+use App\Http\Controllers\WmsProxyController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -97,6 +100,18 @@ Route::middleware('auth')->group(function () {
     Route::delete('/settings/gis-map/profiles/{gisMapSetting}', [GisSettingsController::class, 'destroyProfile'])->whereNumber('gisMapSetting')->name('settings.gis.profiles.destroy');
     Route::post('/settings/gis-map/layers', [GisSettingsController::class, 'storeLayer'])->name('settings.gis.layers.store');
     Route::delete('/settings/gis-map/layers/{gisMapLayer}', [GisSettingsController::class, 'destroyLayer'])->name('settings.gis.layers.destroy');
+    Route::get('/settings/gis-map/wms', [WmsController::class, 'index'])->name('settings.gis.wms');
+    Route::post('/settings/gis-map/wms', [WmsController::class, 'store'])->middleware('permission:wms.manage')->name('settings.gis.wms.store');
+    Route::post('/settings/gis-map/wms/test', [WmsController::class, 'test'])->middleware('permission:wms.manage')->name('settings.gis.wms.test');
+    Route::post('/settings/gis-map/wms/endpoints', [WmsEndpointController::class, 'store'])->middleware('permission:wms.manage')->name('settings.gis.wms.endpoints.store');
+    Route::post('/settings/gis-map/wms/endpoints/{endpoint}/approve', [WmsEndpointController::class, 'approve'])->whereNumber('endpoint')->middleware('permission:wms.endpoint-approve')->name('settings.gis.wms.endpoints.approve');
+    Route::post('/settings/gis-map/wms/endpoints/{endpoint}/reject', [WmsEndpointController::class, 'reject'])->whereNumber('endpoint')->middleware('permission:wms.endpoint-approve')->name('settings.gis.wms.endpoints.reject');
+    Route::put('/settings/gis-map/wms/{wmsService}', [WmsController::class, 'update'])->whereNumber('wmsService')->middleware('permission:wms.manage')->name('settings.gis.wms.update');
+    Route::post('/settings/gis-map/wms/{wmsService}/refresh', [WmsController::class, 'refresh'])->whereNumber('wmsService')->middleware('permission:wms.manage')->name('settings.gis.wms.refresh');
+    Route::delete('/settings/gis-map/wms/{wmsService}', [WmsController::class, 'destroy'])->whereNumber('wmsService')->middleware('permission:wms.manage')->name('settings.gis.wms.destroy');
+    Route::patch('/settings/gis-map/wms-layers/{wmsLayer}', [WmsController::class, 'updateLayer'])->whereNumber('wmsLayer')->middleware('permission:wms.manage')->name('settings.gis.wms-layer.update');
+    Route::get('/map/wms/{wmsService}/{wmsLayer}', WmsProxyController::class)->whereNumber('wmsService')->whereNumber('wmsLayer')->middleware('check_permission:map.view')->name('map.wms.proxy');
+    Route::get('/api/map/wms-layers', [WmsController::class, 'mapLayers'])->middleware('check_permission:map.view')->name('map.wms.layers');
     Route::prefix('platform')->name('platform.')->controller(WorkflowStudioController::class)->group(function () {
         Route::get('workflows', 'index')->name('workflows.index');
         Route::get('workflows/create', 'create')->name('workflows.create');

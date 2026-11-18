@@ -9,6 +9,7 @@ use App\Models\OperationCategory;
 use App\Models\Material;
 use App\Models\User;
 use App\Models\Zone;
+use App\Models\WmsService;
 use App\Services\MapProfileService;
 use App\Services\MapServiceUrlValidator;
 use Illuminate\Http\Request;
@@ -40,11 +41,19 @@ class MapController extends Controller
             ->filter()
             ->values();
 
+        $wmsServices = WmsService::with('layers')
+            ->where(fn ($query) => $query->whereNull('organization_id')->orWhere('organization_id', $request->user()->organization_id))
+            ->where('is_active', true)->orderBy('name')->get();
+        foreach ($wmsServices as $service) foreach ($service->layers->where('is_enabled', true) as $wmsLayer) {
+            $layers->push(['key' => 'wms_'.$wmsLayer->id, 'title' => $wmsLayer->display_name ?: $wmsLayer->title, 'type' => 'wms', 'endpoint' => route('map.wms.proxy', ['wmsService'=>$service, 'wmsLayer'=>$wmsLayer]), 'min_zoom' => 0, 'max_zoom' => 22, 'wms' => ['layers'=>$wmsLayer->layer_name, 'format'=>'image/png', 'transparent'=>true, 'version'=>$service->version, 'styles'=>'', 'server_type'=>null], 'wms_service_id'=>$service->id, 'wms_layer_id'=>$wmsLayer->id, 'default_visible'=>(bool)$wmsLayer->default_visible, 'opacity'=>(float)$wmsLayer->opacity, 'legend_url'=>$wmsLayer->legend_url]);
+        }
+
         return view('map', [
             'baseMap' => $baseMap,
             'baseTileUrl' => $baseMap['tile_url'],
             'baseTileAttribution' => $baseMap['attribution'],
             'gisLayers' => $layers,
+            'wmsLayerPanel' => $wmsServices,
             'isLocal' => config('app.env') === 'local',
             'canViewRisers' => $request->user()->isSuperAdmin() || $request->user()->can('riser.view'),
             'canFieldReport' => (bool) $request->user()->group_user_id
