@@ -99,6 +99,9 @@
     <div class="page-eyebrow">GIS / ZONES</div>
     <div class="page-heading">
         <h4><i class="bi bi-bounding-box-circles text-primary"></i> مدیریت زون‌ها</h4>
+        @if($canImportZones)
+            <a class="btn btn-outline-primary" href="{{ route('zones.import') }}"><i class="bi bi-upload"></i> ورود زون از Shapefile</a>
+        @endif
     </div>
 
     @if($bossZoneBoundaryUnavailable)

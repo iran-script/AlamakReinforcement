@@ -26,6 +26,7 @@ use App\Http\Controllers\ServicePointController;
 use App\Http\Controllers\TileController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ZoneController;
+use App\Http\Controllers\ZoneShapefileImportController;
 use App\Http\Controllers\WmsController;
 use App\Http\Controllers\WmsEndpointController;
 use App\Http\Controllers\WmsProxyController;
@@ -264,6 +265,16 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/zones/manage', [ZoneController::class, 'manage'])
         ->name('zones.manage');
+
+    Route::prefix('/zones/import')->controller(ZoneShapefileImportController::class)->group(function (): void {
+        Route::get('/', 'index')->name('zones.import');
+        Route::post('/upload', 'upload')->name('zones.import.upload');
+        Route::get('/{token}', 'show')->whereAlphaNumeric('token')->name('zones.import.show');
+        Route::post('/{token}/preview', 'preview')->whereAlphaNumeric('token')->name('zones.import.preview');
+        Route::get('/{token}/preview.geojson', 'geojson')->whereAlphaNumeric('token')->name('zones.import.geojson');
+        Route::post('/{token}/confirm', 'confirm')->whereAlphaNumeric('token')->name('zones.import.confirm');
+        Route::delete('/{token}', 'cancel')->whereAlphaNumeric('token')->name('zones.import.cancel');
+    });
 
     /*
     |--------------------------------------------------------------------------

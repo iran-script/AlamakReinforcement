@@ -8,6 +8,13 @@ use App\Services\ZoneBoundaryService;
 
 class ZonePolicy
 {
+    public function import(User $user): bool
+    {
+        return $user->hasRole('superadmin')
+            || ($user->hasRole('boss') && app(ZoneBoundaryService::class)->hasValidBoundary($user))
+            || $user->can('zone.create');
+    }
+
     public function viewAny(User $user): bool
     {
         return $user->hasRole('superadmin')

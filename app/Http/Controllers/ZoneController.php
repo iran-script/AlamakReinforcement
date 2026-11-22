@@ -26,6 +26,7 @@ class ZoneController extends Controller
             'canEditZones' => $user->hasRole('superadmin') || $user->can('zone.edit')
                 || ($user->hasRole('boss') && $boundaries->hasValidBoundary($user)),
             'canDeleteZones' => ! $user->hasRole('boss') && ($user->hasRole('superadmin') || $user->can('zone.delete')),
+            'canImportZones' => Gate::allows('import', Zone::class),
             'bossZoneBoundaryUnavailable' => $user->hasRole('boss') && ! $boundaries->hasValidBoundary($user),
             'isBoss' => $user->hasRole('boss'),
             'initialFocusZoneId' => $user->hasRole('superadmin') ? null : $user->zone_id,
