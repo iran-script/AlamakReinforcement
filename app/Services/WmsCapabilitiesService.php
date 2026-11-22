@@ -39,12 +39,12 @@ class WmsCapabilitiesService
         $formats = []; foreach ($dom->getElementsByTagName('Format') as $format) { $value = trim($format->textContent); if ($value !== '') $formats[] = $value; }
         $layers = [];
         foreach ($dom->getElementsByTagName('Layer') as $node) {
-            $name=''; $title=''; $abstract=''; $crs=[]; $legend=null;
+            $name=''; $title=''; $abstract=''; $legend=null;
             foreach ($node->childNodes as $child) {
                 if (! $child instanceof \DOMElement) continue; $local = $child->localName ?: $child->nodeName;
-                if ($local === 'Name') $name=trim($child->textContent); elseif ($local === 'Title') $title=trim($child->textContent); elseif ($local === 'Abstract') $abstract=trim($child->textContent); elseif (in_array($local,['CRS','SRS'],true)) $crs[]=trim($child->textContent); elseif ($local === 'Style') foreach ($child->getElementsByTagName('OnlineResource') as $resource) $legend=$resource->getAttribute('xlink:href') ?: $resource->getAttribute('href');
+                if ($local === 'Name') $name=trim($child->textContent); elseif ($local === 'Title') $title=trim($child->textContent); elseif ($local === 'Abstract') $abstract=trim($child->textContent); elseif ($local === 'Style') foreach ($child->getElementsByTagName('OnlineResource') as $resource) $legend=$resource->getAttribute('xlink:href') ?: $resource->getAttribute('href');
             }
-            if ($name !== '') $layers[]=['layer_name'=>$name,'title'=>$title ?: $name,'abstract'=>$abstract ?: null,'supported_crs'=>array_values(array_unique($crs)),'supported_formats'=>array_values(array_unique($formats)),'version'=>$detected,'queryable'=>in_array(strtolower($node->getAttribute('queryable')),['1','true'],true),'legend_url'=>$legend,'metadata'=>[]];
+            if ($name !== '') $layers[]=['layer_name'=>$name,'title'=>$title ?: $name,'abstract'=>$abstract ?: null,'supported_crs'=>$this->inheritedCrs($node),'supported_formats'=>array_values(array_unique($formats)),'version'=>$detected,'queryable'=>in_array(strtolower($node->getAttribute('queryable')),['1','true'],true),'legend_url'=>$legend,'metadata'=>[]];
         }
         if ($layers === []) throw new WmsNoLayersException();
         return ['version'=>$detected,'formats'=>array_values(array_unique($formats)),'layers'=>$layers,'raw_size'=>strlen($xml)];
@@ -54,6 +54,21 @@ class WmsCapabilitiesService
     {
         try { return Http::timeout(12)->connectTimeout(5)->withHeaders(['Accept'=>'application/xml,text/xml'])->withOptions(array_merge(['allow_redirects'=>false], $this->urls->requestOptions($url)))->get($url.'?'.http_build_query(['SERVICE'=>'WMS','REQUEST'=>'GetCapabilities','VERSION'=>$version])); }
         catch (ConnectionException $e) { $message=strtolower($e->getMessage()); throw str_contains($message,'timed out') || str_contains($message,'timeout') ? new WmsTimeoutException($e) : new WmsConnectionException($e); }
+    }
+
+    private function inheritedCrs(\DOMElement $layer): array
+    {
+        $crs = [];
+        for ($ancestor = $layer; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode) {
+            if (($ancestor->localName ?: $ancestor->nodeName) !== 'Layer') break;
+            foreach ($ancestor->childNodes as $child) {
+                if (! $child instanceof \DOMElement || ! in_array($child->localName ?: $child->nodeName, ['CRS', 'SRS'], true)) continue;
+                foreach (preg_split('/[\s,]+/', trim($child->textContent)) ?: [] as $value) {
+                    if ($value !== '') $crs[] = $value;
+                }
+            }
+        }
+        return array_values(array_unique($crs));
     }
 
     private function throwForStatus(int $status): never

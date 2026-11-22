@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\Platform\WorkflowRuntimeController;
 use App\Http\Controllers\Api\Platform\WorkOrderController;
 use App\Http\Controllers\Api\RiserApiController;
 use App\Http\Controllers\Api\SupervisorMobileController;
+use App\Http\Controllers\WmsController;
+use App\Http\Controllers\WmsProxyController;
 use App\Http\Controllers\MaintenanceCaseController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\OperationImageController;
@@ -49,6 +51,9 @@ Route::prefix('v1/supervisor')->middleware(['auth:sanctum', 'mobile.supervisor']
     Route::get('cases/photos/{operationPhoto}', [MaintenanceCaseController::class, 'photo'])->whereNumber('operationPhoto');
     Route::get('photos/{operationImage}', [SupervisorMobileController::class, 'photo'])->whereNumber('operationImage');
     Route::get('map/config', [MapConfigurationController::class, 'show']);
+    Route::get('map/wms-layers', [WmsController::class, 'mapLayers']);
+    Route::get('map/wms/{wmsService}/{wmsLayer}', WmsProxyController::class)
+        ->whereNumber('wmsService')->whereNumber('wmsLayer')->name('v1.supervisor.map.wms.proxy');
 });
 
 Route::middleware('auth:sanctum')->group(function () {

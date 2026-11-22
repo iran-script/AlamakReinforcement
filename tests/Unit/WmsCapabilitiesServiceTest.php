@@ -14,11 +14,12 @@ class WmsCapabilitiesServiceTest extends TestCase
 {
     public function test_capabilities_extracts_named_layers_and_version(): void
     {
-        Http::fake(['https://maps.example.test/*' => Http::response('<?xml version="1.0"?><WMS_Capabilities version="1.3.0"><Capability><Request><GetMap><Format>image/png</Format></GetMap></Request><Layer><Title>Root</Title><CRS>EPSG:3857</CRS><Layer queryable="1"><Name>roads</Name><Title>Roads</Title><Abstract>Road network</Abstract></Layer><Layer><Title>Group only</Title></Layer></Layer></Capability></WMS_Capabilities>', 200, ['Content-Type'=>'text/xml'])]);
+        Http::fake(['https://maps.example.test/*' => Http::response('<?xml version="1.0"?><WMS_Capabilities version="1.3.0"><Capability><Request><GetMap><Format>image/png</Format></GetMap></Request><Layer><Title>Root</Title><CRS>EPSG:3857</CRS><CRS>EPSG:4326</CRS><Layer><Title>Group</Title><SRS>EPSG:32639</SRS><Layer queryable="1"><Name>roads</Name><Title>Roads</Title><Abstract>Road network</Abstract><SRS>EPSG:32640</SRS></Layer></Layer><Layer><Title>Group only</Title></Layer></Layer></Capability></WMS_Capabilities>', 200, ['Content-Type'=>'text/xml'])]);
         $data = app(WmsCapabilitiesService::class)->fetch('https://maps.example.test/geoserver/wms');
         $this->assertSame('1.3.0', $data['version']);
         $this->assertSame('roads', $data['layers'][0]['layer_name']);
         $this->assertTrue($data['layers'][0]['queryable']);
+        $this->assertSame(['EPSG:32640', 'EPSG:32639', 'EPSG:3857', 'EPSG:4326'], $data['layers'][0]['supported_crs']);
     }
 
     public function test_remote_http_errors_are_classified_without_exposing_transport_text(): void

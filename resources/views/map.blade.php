@@ -482,15 +482,18 @@
                 maxZoom: baseMapDefinition.max_zoom
             })
         });
+        operationalLayer?.setZIndex(20);
 
         const wmsLayerObjects = new Map();
-        const wmsStorageKey = 'alamak:wms-layers:v1';
+        const wmsStorageKey = @json('alamak:wms-layers:v2:user:'.auth()->id());
         let wmsUserState = {};
         try { wmsUserState = JSON.parse(localStorage.getItem(wmsStorageKey) || '{}') || {}; } catch (_) { wmsUserState = {}; }
         function showWmsLayerError(definition, row) { row.querySelector('.wms-layer-error')?.remove(); const error=document.createElement('div'); error.className='wms-layer-error mt-2'; error.textContent='خطا در بارگذاری لایه؛ برای تلاش مجدد، لایه را خاموش و روشن کنید.'; row.append(error); }
         function addWmsLayer(definition) {
             const saved = wmsUserState[String(definition.id)] || {};
-            const layer = new ol.layer.Tile({ source: new ol.source.TileWMS({ url: definition.url, projection: definition.preferred_crs || 'EPSG:3857', params: {LAYERS: definition.layer_name, VERSION: definition.version || '1.3.0', FORMAT:'image/png', TRANSPARENT:true, STYLES:'', ...(definition.preferred_crs ? {CRS: definition.preferred_crs, SRS: definition.preferred_crs} : {})}, crossOrigin:'anonymous'}), opacity: saved.opacity ?? definition.opacity ?? 1, visible: saved.visible ?? definition.default_visible ?? false, zIndex: 20 });
+            const version = definition.version || '1.3.0';
+            const crsParam = version === '1.3.0' ? {CRS: definition.preferred_crs || 'EPSG:3857'} : {SRS: definition.preferred_crs || 'EPSG:3857'};
+            const layer = new ol.layer.Tile({ source: new ol.source.TileWMS({ url: definition.url, projection: definition.preferred_crs || 'EPSG:3857', params: {LAYERS: definition.layer_name, VERSION: version, FORMAT:'image/png', TRANSPARENT:true, STYLES:'', ...crsParam}, crossOrigin:'anonymous'}), opacity: saved.opacity ?? definition.opacity ?? 1, visible: saved.visible ?? definition.default_visible ?? false, zIndex: 10 });
             layer.on('change:visible', () => { wmsUserState[String(definition.id)] = {...(wmsUserState[String(definition.id)] || {}), visible: layer.getVisible(), opacity: layer.getOpacity()}; localStorage.setItem(wmsStorageKey, JSON.stringify(wmsUserState)); });
             wmsLayerObjects.set(String(definition.id), layer); map.addLayer(layer); layer.getSource().on('tileloaderror',()=>{const row=Array.from(document.querySelectorAll('.wms-layer-row')).find(item=>item.textContent.includes(definition.title)); if(row){row.querySelector('.wms-layer-error')?.remove(); const error=document.createElement('div'); error.className='wms-layer-error mt-2'; error.textContent='خطا در بارگذاری لایه؛ برای تلاش مجدد، لایه را خاموش و روشن کنید.'; row.append(error);}}); return layer;
         }

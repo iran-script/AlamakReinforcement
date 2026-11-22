@@ -11,6 +11,7 @@ use App\Models\WmsService;
 use App\Services\AuditLogger;
 use App\Services\WmsCapabilitiesService;
 use App\Services\WmsErrorResponder;
+use App\Services\WmsLayerCrsResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -57,12 +58,55 @@ class WmsController extends Controller
     public function updateLayer(UpdateWmsLayerRequest $request, WmsLayer $wmsLayer, WmsErrorResponder $errors): JsonResponse|RedirectResponse
     { $this->assertOwn($request,$wmsLayer->service); try { $data=$request->validated(); $data['default_visible']=$request->boolean('default_visible'); if($request->has('is_enabled'))$data['is_enabled']=$request->boolean('is_enabled'); $wmsLayer->update($data); return $request->expectsJson()?response()->json(['success'=>true]):back()->with('success','تنظیمات لایه ذخیره شد.'); } catch(Throwable $e) { return $request->expectsJson()?$errors->json($e):$errors->flash($request,$e,$wmsLayer->service?->url,'layer'); } }
 
-    public function mapLayers(Request $request): JsonResponse
-    { abort_unless($request->user()->can('map.view'),403); $scope=$this->scope($request); $services=WmsService::with('layers')->where(fn($q)=>$q->whereNull('organization_id')->orWhere('organization_id',$scope))->where('is_active',true)->orderBy('name')->get(); return response()->json(['success'=>true,'services'=>$services->map(fn($s)=>['id'=>$s->id,'name'=>$s->name,'version'=>$s->version,'layers'=>$s->layers->where('is_enabled',true)->map(fn($l)=>['id'=>$l->id,'title'=>$l->display_name ?: $l->title,'layer_name'=>$l->layer_name,'opacity'=>(float)$l->opacity,'default_visible'=>$l->default_visible,'legend_url'=>$l->legend_url,'url'=>route('map.wms.proxy',['wmsService'=>$s,'wmsLayer'=>$l]),'preferred_crs'=>$this->preferredCrs($l)])->values()])->values()]); }
+    public function mapLayers(Request $request, WmsLayerCrsResolver $crsResolver): JsonResponse
+    {
+        abort_unless($request->user()->can('map.view'), 403);
+        $scope = $this->scope($request);
+        $proxyRoute = $request->is('api/v1/supervisor/map/*')
+            ? 'v1.supervisor.map.wms.proxy'
+            : 'map.wms.proxy';
+        $absoluteProxyUrl = $proxyRoute === 'map.wms.proxy';
+        $services = WmsService::with('layers')
+            ->where(fn ($query) => $query->whereNull('organization_id')->orWhere('organization_id', $scope))
+            ->where('is_active', true)->orderBy('name')->get();
+
+        $payload = $services->map(function ($service) use ($crsResolver, $proxyRoute, $absoluteProxyUrl) {
+            $crsByLayer = $crsResolver->forService($service);
+
+            return [
+                'id' => $service->id,
+                'name' => $service->name,
+                'version' => $service->version,
+                'layers' => $service->layers->where('is_enabled', true)
+                    ->map(function ($layer) use ($service, $crsResolver, $crsByLayer, $proxyRoute, $absoluteProxyUrl) {
+                        $crs = $crsResolver->forLayer($layer, $crsByLayer);
+                        $preferred = $crsResolver->preferred($crs);
+                        if ($preferred === null) return null;
+
+                        return [
+                            'id' => $layer->id,
+                            'title' => $layer->display_name ?: $layer->title,
+                            'layer_name' => $layer->layer_name,
+                            'version' => $service->version,
+                            'sort_order' => $layer->sort_order,
+                            'opacity' => (float) $layer->opacity,
+                            'default_visible' => $layer->default_visible,
+                            'legend_url' => $layer->legend_url,
+                            'url' => route($proxyRoute, ['wmsService' => $service, 'wmsLayer' => $layer], $absoluteProxyUrl),
+                            'preferred_crs' => $preferred,
+                        ];
+                    })->filter()->values(),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'services' => $payload->values(),
+        ])->header('Cache-Control', 'private, no-store');
+    }
 
     private function syncLayers(WmsService $service,array $incoming): void
     { $existing=$service->layers()->get()->keyBy('layer_name'); $unused=$existing->keyBy('id'); foreach($incoming as $i=>$layer){$match=$existing->get($layer['layer_name']); if(!$match)$match=$unused->first(fn(WmsLayer $old)=>$old->title===$layer['title']); $preserved=$match?['display_name'=>$match->display_name,'is_enabled'=>$match->is_enabled,'default_visible'=>$match->default_visible,'opacity'=>$match->opacity,'sort_order'=>$match->sort_order]:['display_name'=>$layer['title'],'is_enabled'=>true,'default_visible'=>false,'opacity'=>1,'sort_order'=>$i]; if($match)$unused->forget($match->id); $service->layers()->updateOrCreate(['layer_name'=>$layer['layer_name']],$layer+$preserved);} foreach($unused as $old)$old->update(['is_enabled'=>false,'metadata'=>array_merge($old->metadata ?: [],['sync_status'=>'missing_from_last_capabilities','last_seen_at'=>now()->toIso8601String()])]); }
     private function scope(Request $request): ?int { return $request->user()->isSuperAdmin()?null:(int)$request->user()->organization_id; }
-    private function preferredCrs(WmsLayer $layer): string { $crs=$layer->supported_crs ?: []; foreach(['EPSG:3857','EPSG:4326'] as $preferred)if(in_array($preferred,$crs,true))return $preferred; return $crs[0] ?? 'EPSG:3857'; }
     private function assertOwn(Request $request,WmsService $service): void { abort_unless($request->user()->can('wms.manage'),403); abort_unless($service->organization_id===$this->scope($request),403); }
 }
